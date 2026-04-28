@@ -7,7 +7,7 @@ import os
 
 # --- Init ---
 pygame.init()
-WIDTH, HEIGHT = 800, 600
+WIDTH, HEIGHT = 793, 650
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Garden of Eden")
 clock = pygame.time.Clock()
@@ -133,7 +133,9 @@ def main():
                             pygame.quit()
                             sys.exit()
                         elif btn["id"] == "start":
+                             pygame.mixer.music.fadeout(500)
                              Start.main()
+                             pygame.quit()
                              sys.exit()
 
 

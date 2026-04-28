@@ -1,14 +1,21 @@
+import os.path
+
 import pygame
 import sys
 import collections
 import random
 import pytmx
+import os
+import TheTwins
 
 pygame.init()
-WIDTH, HEIGHT = 800, 650
+WIDTH, HEIGHT = 793, 650
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Garden of Eden – The Naga's Lair")
 clock  = pygame.time.Clock()
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+pygame.mixer.init()
 
 tmx_data = pytmx.load_pygame("TheNagaMap.tmx")
 
@@ -360,6 +367,10 @@ INVINCIBLE_FRAMES = 90
 def main():
     walls, green_walls, red_walls, GREEN_LEVER_POS, RED_LEVER_POS, naga_tile, empty_tiles = build_from_tmx()
 
+    pygame.mixer.music.load(os.path.join(BASE_DIR, "audio", "Moonlight_DungeonTheme.wav"))
+    pygame.mixer.music.set_volume(0.5)
+    pygame.mixer.music.play(-1)
+
     wall_set = set()
     for w in walls:
         wall_set.add((w.x // T, w.y // T))
@@ -502,10 +513,9 @@ def main():
                 ["You find a lever.", "Pull it?"],
                 [("E / Enter", "Yes")])
         elif state == STATE_WIN:
-            draw_dialog(screen,
-                ["You escaped the Naga's Lair!",
-                 "The garden falls behind you..."],
-                [("Enter", "Continue")])
+            pygame.mixer.music.fadeout(500)
+            TheTwins.main()
+            pygame.quit()
 
         pygame.display.flip()
 
