@@ -6,6 +6,7 @@ import random
 import pytmx
 import collections
 import TheStatues
+import TheGarden
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -951,3 +952,180 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# =============================================================================
+# GOD_MAIN  —  backtrack mode (guardian disabled, god chasing player to bottom)
+# =============================================================================
+def _near_door_guardian(player_rect, door_rects, radius=50):
+    if not door_rects:
+        return False
+    door_union = door_rects[0].unionall(door_rects[1:])
+    return door_union.inflate(radius * 2, radius * 2).colliderect(player_rect)
+
+
+def god_main(god):
+    """
+    Backtrack pass through The Guardian's maze.
+    - Guardian is disabled entirely (gone).
+    - No darkness, no bush mechanic, no key.
+    - God chases player top → bottom exit door.
+    - Door must be kicked open (random kick count).
+    - Music already playing (Hostile_March_BattleTheme.wav), no reload.
+    - On exit: calls next level in chain (Twins / Naga — add when ready).
+    """
+    from TheGarden import Lightning
+
+    DOOR_KICK_MIN = 4
+    DOOR_KICK_MAX = 8
+
+    walls, wall_set, bush_tiles, exit_tiles, entrance_tiles, walls_exit = build_from_tmx()
+
+    player             = Player()
+    player.rect.center = (WIDTH // 2, 60)   # enters from top (Statues side)
+    player.lives       = MAX_LIVES
+
+    lightning_bolts   = []
+    inv_timer         = 0
+
+    door_kicks        = 0
+    door_kicks_needed = random.randint(DOOR_KICK_MIN, DOOR_KICK_MAX)
+    door_kick_cd      = 0
+    door_open         = False
+    door_rects        = exit_tiles
+
+    # Reset god to top of screen
+    god.rect.center = (WIDTH // 2, -80)
+
+    STATE_RUN  = "run"
+    STATE_DEAD = "dead"
+    state      = STATE_RUN
+
+    while True:
+        clock.tick(60)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    pygame.quit(); sys.exit()
+
+                if state == STATE_RUN:
+                    if event.key == pygame.K_e:
+                        if not door_open \
+                                and _near_door_guardian(player.rect, door_rects) \
+                                and door_kick_cd <= 0:
+                            door_kicks += 1
+                            door_kick_cd = 20
+                            if door_kicks >= door_kicks_needed:
+                                door_open = True
+
+                elif state == STATE_DEAD:
+                    if event.key == pygame.K_r:
+                        god_main(god); return
+                    if event.key == pygame.K_ESCAPE:
+                        pygame.quit(); sys.exit()
+
+        if state == STATE_RUN:
+            keys = pygame.key.get_pressed()
+            player.move(keys, walls)
+
+            if door_kick_cd  > 0: door_kick_cd  -= 1
+            if inv_timer     > 0: inv_timer      -= 1
+            if player.inv_timer > 0: player.inv_timer -= 1
+
+            keys_held = pygame.key.get_pressed()
+            if keys_held[pygame.K_e] and not door_open \
+                    and _near_door_guardian(player.rect, door_rects) \
+                    and door_kick_cd <= 0:
+                door_kicks += 1
+                door_kick_cd = 20
+                if door_kicks >= door_kicks_needed:
+                    door_open = True
+
+            god.update(player.rect)
+
+            if god.in_smite_range(player.rect) and inv_timer <= 0:
+                state = STATE_DEAD
+
+            for bolt in god.try_spawn_bolts(player.rect):
+                lightning_bolts.append(bolt)
+
+            for bolt in lightning_bolts[:]:
+                done = bolt.update()
+                if bolt.hits(player.rect) and inv_timer <= 0:
+                    player.lives    -= 1
+                    inv_timer        = INVINCIBLE_FRAMES
+                    player.inv_timer = INVINCIBLE_FRAMES
+                    if player.lives <= 0:
+                        state = STATE_DEAD
+                if done:
+                    lightning_bolts.remove(bolt)
+
+            # Exit bottom — next level in chain (stub for Twins/Naga)
+            if door_open and player.rect.top >= HEIGHT - 2 * T:
+                # TODO: TheTwins.god_main(god)
+                return
+
+        # ── Draw ──────────────────────────────────────────────────────────────
+        screen.fill(BLACK)
+
+        # Draw map — no guardian, no darkness
+        for layer in tmx_data.layers:
+            if not isinstance(layer, pytmx.TiledTileLayer):
+                continue
+            if layer.name in ("Entrance", "Entrance2"):
+                continue   # top open (came from Statues)
+            if layer.name in ("Exit - Open", "Exit2 - Open") and not door_open:
+                continue
+            if layer.name in ("Exit", "Exit2") and door_open:
+                continue
+            for x, y, gid in layer:
+                tile = tmx_data.get_tile_image_by_gid(gid)
+                if tile:
+                    screen.blit(tile, (x * T, y * T))
+
+        # Door kick UI
+        if not door_open and door_rects:
+            door_union = door_rects[0].unionall(door_rects[1:])
+            progress   = door_kicks / max(door_kicks_needed, 1)
+            crack_col  = (int(220 * progress), int(80 * (1 - progress)), 0)
+            pygame.draw.rect(screen, crack_col, door_union.inflate(4, 4), 2, border_radius=2)
+
+            bx, by, bw = door_union.x, door_union.y - 10, door_union.width
+            pygame.draw.rect(screen, (50, 20, 20), (bx, by, bw, 5))
+            pygame.draw.rect(screen, (220, 80, 40), (bx, by, int(bw * progress), 5))
+
+            if _near_door_guardian(player.rect, door_rects):
+                hint = font_sm.render(
+                    f"[E] Kick the door  ({door_kicks}/{door_kicks_needed})", True, WHITE)
+                hbg = pygame.Surface((hint.get_width() + 16, hint.get_height() + 8),
+                                      pygame.SRCALPHA)
+                hbg.fill((10, 10, 10, 180))
+                screen.blit(hbg,  (WIDTH // 2 - hbg.get_width() // 2, HEIGHT - 44))
+                screen.blit(hint, hint.get_rect(center=(WIDTH // 2, HEIGHT - 36)))
+
+        for bolt in lightning_bolts:
+            bolt.draw(screen)
+
+        god.draw(screen)
+        player.draw(screen)
+
+        hx, hy = 8, 8
+        for i in range(MAX_LIVES):
+            if heart_full and heart_empty:
+                img = heart_full if i < player.lives else heart_empty
+                screen.blit(img, (hx, hy))
+                hx += img.get_width() + 4
+            else:
+                col = (220, 50, 50) if i < player.lives else (80, 80, 80)
+                pygame.draw.circle(screen, col, (hx + 8, hy + 8), 7)
+                hx += 20
+
+        if state == STATE_DEAD:
+            draw_simple_dialog(screen,
+                ["The divine presence consumes you.",
+                 "There is no escaping divine wrath."],
+                [("R", "Try again"), ("Esc", "Quit")])
+
+        pygame.display.flip()
