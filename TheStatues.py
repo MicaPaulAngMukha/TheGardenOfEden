@@ -5,6 +5,7 @@ import math
 import random
 import pytmx
 import collections
+import TheGarden
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -841,10 +842,10 @@ def main():
                 [("R", "Try again"), ("Esc", "Quit")])
 
         elif state == STATE_WIN:
-            draw_simple_dialog(screen,
-                ["You escaped the statue room...",
-                 "A path deeper into Eden opens."],
-                [("Enter", "Continue")])
+            pygame.mixer.music.fadeout(500)
+            TheGarden.main()
+            pygame.quit()
+
 
         pygame.display.flip()
 
