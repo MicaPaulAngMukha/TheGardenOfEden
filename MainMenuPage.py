@@ -4,6 +4,7 @@ import pygame
 import sys
 import Start
 import os
+from Prologue import Prologue
 
 # --- Init ---
 pygame.init()
@@ -134,7 +135,8 @@ def main():
                             sys.exit()
                         elif btn["id"] == "start":
                              pygame.mixer.music.fadeout(500)
-                             Start.main()
+                             p = Prologue(screen, clock)
+                             p.run()
                              pygame.quit()
                              sys.exit()
 

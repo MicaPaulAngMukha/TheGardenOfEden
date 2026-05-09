@@ -5,6 +5,7 @@ import math
 import random
 import pytmx
 import collections
+import TheGuardian
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -61,7 +62,7 @@ PLAYER_SPAWN = (29 * T + T // 2, 3 * T)
 CAIN_SPEED_NORMAL   = 2.5
 CAIN_SPEED_ENRAGED  = 3.5
 ABEL_SPEED_NORMAL   = 3.6
-ABEL_SPEED_ENRAGED  = 4.5
+ABEL_SPEED_ENRAGED  = 5.5
 
 CAIN_THROW_RANGE_NORMAL  = 8   # tiles
 CAIN_THROW_RANGE_ENRAGED = 16   # tiles
@@ -73,8 +74,7 @@ INVINCIBLE_FRAMES    = 90
 
 FRAGMENTS_NEEDED     = 3  # per twin
 
-WALL_LAYERS = {"Walls", "WallsBack", "Walls_Side",
-               "walls_exit", "MazeTileHorizontal", "MazeTileVertical"}
+WALL_LAYERS = {"Walls", "WallsBack", "Walls_Side", "MazeTileHorizontal", "MazeTileVertical"}
 
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -121,7 +121,38 @@ def build_from_tmx():
 
 def spawn_fragments(interactive_tiles, wall_set, count=6):
     safe = [(x, y) for (x, y) in interactive_tiles if (x, y) not in wall_set]
-    chosen = random.sample(safe, min(count, len(safe)))
+    if not safe:
+        return []
+
+    # Divide map into a grid of zones and pick one tile per zone
+    zone_cols = 3
+    zone_rows = 2
+    zone_w = COLS / zone_cols
+    zone_h = ROWS / zone_rows
+
+    zones = {(zc, zr): [] for zc in range(zone_cols) for zr in range(zone_rows)}
+    for (x, y) in safe:
+        zc = min(int(x / zone_w), zone_cols - 1)
+        zr = min(int(y / zone_h), zone_rows - 1)
+        zones[(zc, zr)].append((x, y))
+
+    chosen = []
+    zone_keys = [k for k, v in zones.items() if v]  # only zones with tiles
+    random.shuffle(zone_keys)
+
+    for zk in zone_keys:
+        if len(chosen) >= count:
+            break
+        tile = random.choice(zones[zk])
+        chosen.append(tile)
+
+    # If zones didn't give enough, fill remainder from unused safe tiles
+    if len(chosen) < count:
+        used = set(chosen)
+        remaining = [t for t in safe if t not in used]
+        random.shuffle(remaining)
+        chosen += remaining[:count - len(chosen)]
+
     frags = []
     for (x, y) in chosen:
         frags.append({
@@ -406,6 +437,42 @@ class CainSprites:
         draw_y = rect.centery - frame.get_height() // 2
         surface.blit(frame, (draw_x, draw_y))
 
+class AbelSprites:
+    ROWS = {"up": 0, "right": 3, "down": 2, "left": 1}
+
+    def __init__(self, scale=1):
+        base = os.path.join(BASE_DIR, "Sprites", "Abel")
+
+        def load(filename, fw, fh, frames_per_row, speed=12):
+            path = os.path.join(base, filename)
+            return {
+                dir: SpriteSheet(path, fw, fh, frames_per_row, row=row, scale=scale)
+                for dir, row in self.ROWS.items()
+            }
+
+        self.anims = {
+            "idle": load("abel_idle.png", 30, 49, 2),
+            "walk": load("abel_walk.png", 37, 49, 9, speed=120),
+        }
+        self.current_anim = "idle"
+        self.current_dir  = "down"
+
+    def set_anim(self, anim, direction=None):
+        if direction:
+            self.current_dir = direction
+        if anim != self.current_anim:
+            self.current_anim = anim
+            self.anims[anim][self.current_dir].reset()
+
+    def update(self):
+        self.anims[self.current_anim][self.current_dir].update()
+
+    def draw(self, surface, rect):
+        frame  = self.anims[self.current_anim][self.current_dir].current()
+        draw_x = rect.centerx - frame.get_width()  // 2
+        draw_y = rect.centery - frame.get_height() // 2
+        surface.blit(frame, (draw_x, draw_y))
+
 # ─────────────────────────────────────────────────────────────────────────────
 # CAIN  (slower, throws spears)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -462,6 +529,7 @@ class Abel(Twin):
     def __init__(self, spawn_tile):
         super().__init__(spawn_tile, ABEL_SPEED_NORMAL, ABEL_COL, ABEL_HEAD)
         self.first_catch_done = False
+        self.sprites = AbelSprites(scale=1)   # ← add this
 
     def enrage(self):
         self.enraged = True
@@ -471,6 +539,16 @@ class Abel(Twin):
         if self.banished or player.stun_timer > 0:
             return False
         return self.rect.colliderect(player.rect)
+
+    def draw(self, surface):
+        if self.banished:
+            return
+        if self.enraged:
+            glow = pygame.Surface((50, 50), pygame.SRCALPHA)
+            pygame.draw.ellipse(glow, (80, 120, 255, 80), glow.get_rect())
+            surface.blit(glow, (self.rect.x - 19, self.rect.y - 19))
+        self.sprites.update()
+        self.sprites.draw(surface, self.rect)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DRAW
@@ -793,6 +871,17 @@ def main():
             if not abel.banished:
                 abel.update_path(player.rect, wall_set)
                 abel.move_along_path(walls)
+
+                # ← add direction update
+                dx = player.rect.centerx - abel.rect.centerx
+                dy = player.rect.centery - abel.rect.centery
+                if abs(dx) > abs(dy):
+                    new_dir = "right" if dx > 0 else "left"
+                else:
+                    new_dir = "down" if dy > 0 else "up"
+                if new_dir != abel.sprites.current_dir or abel.sprites.current_anim != "walk":
+                    abel.sprites.set_anim("walk", new_dir)
+
                 if abel.check_catch(player):
                     if not abel.first_catch_done:
                         abel.first_catch_done = True
@@ -881,10 +970,7 @@ def main():
                 [("R", "Try again"), ("Esc", "Quit")])
 
         elif state == STATE_WIN:
-            draw_dialog(screen,
-                ["You have banished both twins.",
-                 "The garden falls silent..."],
-                [("Enter", "Continue")])
+            TheGuardian.main()
 
         pygame.display.flip()
 
