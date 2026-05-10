@@ -65,11 +65,31 @@ try:
 except Exception:
     portrait_raziel = None
 
+# ── Boss/God sprite sheet ─────────────────────────────────────────────────────
+try:
+    _boss_sheet = pygame.image.load(
+        os.path.join(BASE_DIR, "Sprites", "boss", "bossSprite.png")).convert_alpha()
+    _boss_fw    = _boss_sheet.get_width() // 5   # 215
+    _boss_fh    = _boss_sheet.get_height()        # 232
+    # Scale to display size — keep aspect ratio, ~80px wide
+    _boss_scale = 80 / _boss_fw
+    _boss_dw    = 160
+    _boss_dh    = 200
+    boss_frames = [
+        pygame.transform.scale(
+            _boss_sheet.subsurface((_boss_fw * i, 0, _boss_fw, _boss_fh)),
+            (_boss_dw, _boss_dh)
+        )
+        for i in range(5)
+    ]
+except Exception:
+    boss_frames = []
+
 # ── Constants ─────────────────────────────────────────────────────────────────
 PLAYER_SIZE        = 14
 MAX_LIVES          = 3
 # Player enters from the bottom centre (same spawn logic as other levels)
-PLAYER_SPAWN       = (WIDTH // 2, HEIGHT - 50)
+PLAYER_SPAWN = (WIDTH // 2, 80)  # just below the top entrance
 
 TREE_SHAKE_NEEDED  = 3
 DOOR_KICK_MIN      = 4
@@ -81,6 +101,8 @@ GOD_SPEED          = 0.9      # slow, inevitable, ignores all walls
 GOD_SMITE_RANGE    = 85       # instant-kill proximity in pixels
 LIGHTNING_COUNT    = 5
 LIGHTNING_COOLDOWN = 90       # frames between bolt volleys (~1.5 s)
+
+STATE_CUTSCENE = "cutscene"
 
 # Only true wall tiles block the player — everything else is decoration
 WALL_LAYERS = {"Walls"}
@@ -105,6 +127,13 @@ EPILOGUE = [
     ("Raziel",  "It's only closed to those it deemed a sinner."),
     ("Raziel",  "And this little human..."),
     ("Raziel",  "Just branded themselves to an eternal barricade from this point on."),
+]
+
+CUTSCENE = [
+    ("NARRATE", "You enter a garden..."),
+    ("NARRATE", "It looks peaceful."),
+    ("NARRATE", "There seems to be no monsters here..."),
+    ("NARRATE", "... and only a singular grand tree."),
 ]
 
 
@@ -190,6 +219,126 @@ def build_from_tmx():
 # =============================================================================
 # PLAYER
 # =============================================================================
+class SpriteSheet:
+    def __init__(self, path, frame_w, frame_h, num_frames, row=0, scale=1, speed=8):
+        sheet = pygame.image.load(path).convert_alpha()
+        sw, sh = sheet.get_size()
+
+        # Derive safe dimensions directly from sheet size and frame counts
+        num_rows = 4                          # all guardian sheets have 4 direction rows
+        safe_fw  = sw // num_frames           # exact frame width
+        safe_fh  = sh // num_rows             # exact frame height
+
+        self.frames = []
+        for i in range(num_frames):
+            x_off = i * safe_fw
+            y_off = row * safe_fh
+            # Guard against any remaining OOB
+            if x_off + safe_fw > sw or y_off + safe_fh > sh:
+                break
+            frame = sheet.subsurface((x_off, y_off, safe_fw, safe_fh))
+            if scale != 1:
+                frame = pygame.transform.scale(
+                    frame, (int(safe_fw * scale), int(safe_fh * scale)))
+            self.frames.append(frame)
+
+        if not self.frames:
+            fallback = pygame.Surface((max(safe_fw, 1), max(safe_fh, 1)), pygame.SRCALPHA)
+            self.frames = [fallback]
+
+        self.index = 0
+        self.timer = 0
+        self.speed = speed
+
+    def update(self):
+        self.timer += 1
+        if self.timer >= self.speed:
+            self.timer = 0
+            self.index = (self.index + 1) % len(self.frames)
+
+    def current(self):
+        return self.frames[self.index]
+
+    def reset(self):
+        self.index = 0
+        self.timer = 0
+
+class PlayerSpriteSheet:
+    def __init__(self, path, frame_w, frame_h, num_frames, row=0, scale=1, speed=8):
+        sheet = pygame.image.load(path).convert_alpha()
+        self.frames = []
+        for i in range(num_frames):
+            frame = sheet.subsurface((i * frame_w, row * frame_h, frame_w, frame_h))
+            if scale != 1:
+                frame = pygame.transform.scale(
+                    frame, (int(frame_w * scale), int(frame_h * scale)))
+            self.frames.append(frame)
+        self.index = 0
+        self.timer = 0
+        self.speed = speed
+
+    def update(self):
+        self.timer += 1
+        if self.timer >= self.speed:
+            self.timer = 0
+            self.index = (self.index + 1) % len(self.frames)
+
+    def current(self):
+        return self.frames[self.index]
+
+    def reset(self):
+        self.index = 0
+        self.timer = 0
+
+class PlayerSprites:
+    ROWS = {"up": 0, "left": 1, "down": 2, "right": 3}
+
+    def __init__(self, scale=1):
+        base = os.path.join(BASE_DIR, "Sprites", "Player")
+
+        def load_dir(filename, frames_per_row):
+            path = os.path.join(base, filename)
+            return {
+                d: PlayerSpriteSheet(path, 64, 64, frames_per_row, row=row, scale=scale)
+                for d, row in self.ROWS.items()
+            }
+
+        self.anims = {
+            "idle": load_dir("idle.png", 2),
+            "run":  load_dir("run.png",  6),
+        }
+        hurt_path = os.path.join(base, "hurt.png")
+        self.hurt_anim = PlayerSpriteSheet(hurt_path, 64, 64, 6, row=0, scale=scale)
+
+        self.current_anim = "idle"
+        self.current_dir  = "down"
+        self.showing_hurt = False
+
+    def set_anim(self, anim, direction=None):
+        if direction:
+            self.current_dir = direction
+        if anim != self.current_anim:
+            self.current_anim = anim
+            if anim in self.anims:
+                self.anims[anim][self.current_dir].reset()
+
+    def show_hurt(self):
+        self.showing_hurt = True
+        self.hurt_anim.reset()
+
+    def update(self):
+        if self.showing_hurt:
+            self.hurt_anim.update()
+            if self.hurt_anim.index == len(self.hurt_anim.frames) - 1:
+                self.showing_hurt = False
+        elif self.current_anim in self.anims:
+            self.anims[self.current_anim][self.current_dir].update()
+
+    def get_frame(self):
+        if self.showing_hurt:
+            return self.hurt_anim.current()
+        return self.anims[self.current_anim][self.current_dir].current()
+
 class Player:
     SPEED = 3
 
@@ -197,8 +346,10 @@ class Player:
         self.lives      = MAX_LIVES
         self.has_apple  = False
         self.inv_timer  = 0
+        self.sprites    = PlayerSprites(scale=1)
         self.rect       = pygame.Rect(0, 0, PLAYER_SIZE, PLAYER_SIZE)
         self.rect.center = PLAYER_SPAWN
+        self.sprites.set_anim("idle", "down")
 
     def move(self, keys, walls, block_top=True):
         dx = dy = 0
@@ -206,6 +357,14 @@ class Player:
         if keys[pygame.K_RIGHT] or keys[pygame.K_d]: dx =  self.SPEED
         if keys[pygame.K_UP]    or keys[pygame.K_w]: dy = -self.SPEED
         if keys[pygame.K_DOWN]  or keys[pygame.K_s]: dy =  self.SPEED
+
+        if dx != 0 or dy != 0:
+            if abs(dx) > abs(dy):
+                self.sprites.set_anim("run", "right" if dx > 0 else "left")
+            else:
+                self.sprites.set_anim("run", "down" if dy > 0 else "up")
+        else:
+            self.sprites.set_anim("idle")
 
         self.rect.x += dx
         for w in walls:
@@ -219,31 +378,33 @@ class Player:
                 if dy > 0: self.rect.bottom = w.top
                 else:      self.rect.top    = w.bottom
 
-        # Prevent leaving through the top before the door is broken
         if block_top and self.rect.top < 2 * T:
             self.rect.top = 2 * T
 
         self.rect.clamp_ip(pygame.Rect(0, 0, WIDTH, HEIGHT))
 
     def near_point(self, px, py, radius=40):
-        """True when player centre is within radius pixels of (px, py)."""
         dx = self.rect.centerx - px
         dy = self.rect.centery - py
         return math.sqrt(dx * dx + dy * dy) < radius
 
     def near_door(self, door_rects, radius=50):
-        """True when player is close to any door tile."""
         if not door_rects:
             return False
         door_union = door_rects[0].unionall(door_rects[1:])
         return door_union.inflate(radius * 2, radius * 2).colliderect(self.rect)
 
+    def trigger_hurt(self):
+        self.sprites.show_hurt()
+
     def draw(self, surface):
         if self.inv_timer > 0 and (self.inv_timer // 5) % 2 == 0:
             return
-        pygame.draw.rect(surface, PLAYER_COL, self.rect, border_radius=3)
-        pygame.draw.circle(surface, PLAYER_HEAD,
-                           (self.rect.centerx, self.rect.top + 4), 5)
+        self.sprites.update()
+        frame  = self.sprites.get_frame()
+        draw_x = self.rect.centerx - frame.get_width()  // 2
+        draw_y = self.rect.centery - frame.get_height() // 2
+        surface.blit(frame, (draw_x, draw_y))
         if self.has_apple:
             pygame.draw.circle(surface, (200, 40, 40),
                                (self.rect.centerx, self.rect.top - 8), 5)
@@ -319,6 +480,10 @@ class God:
                                       self.SIZE, self.SIZE)
         self.bolt_timer = LIGHTNING_COOLDOWN // 2
 
+        self.anim_index = 0
+        self.anim_timer = 0
+        self.ANIM_SPEED = 8  # frames per sprite frame
+
     def update(self, player_rect):
         dx = player_rect.centerx - self.rect.centerx
         dy = player_rect.centery - self.rect.centery
@@ -347,33 +512,44 @@ class God:
         return bolts
 
     def draw(self, surface):
-        cx, cy = int(self.rect.centerx), int(self.rect.centery)
-        ticks  = pygame.time.get_ticks()
-        pulse  = 0.5 + 0.5 * math.sin(ticks / 200)
+        self.anim_timer += 1
+        if self.anim_timer >= self.ANIM_SPEED:
+            self.anim_timer = 0
+            self.anim_index = (self.anim_index + 1) % max(len(boss_frames), 1)
 
-        # Outer aura
-        glow_r = int(55 + 15 * pulse)
-        glow   = pygame.Surface((glow_r * 2, glow_r * 2), pygame.SRCALPHA)
-        pygame.draw.ellipse(glow, (255, 255, 200, int(55 + 30 * pulse)), glow.get_rect())
+        cx, cy = int(self.rect.centerx), int(self.rect.centery)
+        ticks = pygame.time.get_ticks()
+        pulse = 0.5 + 0.5 * math.sin(ticks / 200)
+
+        # ── Outer pulsing aura ────────────────────────────────────────────────────
+        glow_r = int(80 + 20 * pulse)
+        glow = pygame.Surface((glow_r * 2, glow_r * 2), pygame.SRCALPHA)
+        pygame.draw.ellipse(glow, (255, 255, 200, int(40 + 30 * pulse)), glow.get_rect())
         surface.blit(glow, (cx - glow_r, cy - glow_r))
 
-        # Radiant lines
+        # ── Radiant lines ─────────────────────────────────────────────────────────
         for angle in range(0, 360, 45):
             rad = math.radians(angle + ticks / 10)
-            x1  = cx + int(math.cos(rad) * 26)
-            y1  = (cy - 20) + int(math.sin(rad) * 26)
-            x2  = cx + int(math.cos(rad) * 38)
-            y2  = (cy - 20) + int(math.sin(rad) * 38)
-            pygame.draw.line(surface, (255, 240, 120), (x1, y1), (x2, y2), 2)
+            x1 = cx + int(math.cos(rad) * 55)
+            y1 = cy + int(math.sin(rad) * 55)
+            x2 = cx + int(math.cos(rad) * 75)
+            y2 = cy + int(math.sin(rad) * 75)
+            pygame.draw.line(surface, (255, 240, 120, 180), (x1, y1), (x2, y2), 2)
 
-        # Body pillar
-        pygame.draw.rect(surface, (240, 230, 180),
-                         pygame.Rect(cx - 8, cy - 14, 16, 28), border_radius=4)
-        # Head
-        pygame.draw.circle(surface, (255, 250, 220), (cx, cy - 20), 10)
-        pygame.draw.circle(surface, WHITE,            (cx, cy - 20),  6)
-        # Halo ring
-        pygame.draw.circle(surface, (255, 240, 100), (cx, cy - 20), 14, 2)
+        # ── Sprite ────────────────────────────────────────────────────────────────
+        if boss_frames:
+            frame = boss_frames[self.anim_index]
+            draw_x = cx - frame.get_width() // 2
+            draw_y = cy - frame.get_height() // 2
+            surface.blit(frame, (draw_x, draw_y))
+
+        # ── Halo ring above the sprite head ──────────────────────────────────────
+        halo_r = int(28 + 4 * pulse)
+        halo_y = cy - (boss_frames[0].get_height() // 2) + 10 if boss_frames else cy - 50
+        halo_surf = pygame.Surface((halo_r * 2 + 10, halo_r * 2 + 10), pygame.SRCALPHA)
+        pygame.draw.ellipse(halo_surf, (255, 240, 100, int(160 + 60 * pulse)),
+                            halo_surf.get_rect(), 4)
+        surface.blit(halo_surf, (cx - halo_r - 5, halo_y - halo_r - 5))
 
 
 # =============================================================================
@@ -405,6 +581,25 @@ class ScreenShake:
 # =============================================================================
 # DRAW SCENE
 # =============================================================================
+def draw_cutscene_line(surface, tag, typewriter):
+    box_w, box_h = 560, 80
+    box_x = WIDTH  // 2 - box_w // 2
+    box_y = HEIGHT // 2 - box_h // 2
+
+    ov = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
+    ov.fill((10, 10, 10, 210))
+    surface.blit(ov, (box_x, box_y))
+    pygame.draw.rect(surface, (160, 160, 180),
+                     (box_x, box_y, box_w, box_h), 2, border_radius=6)
+    txt = font_md.render(typewriter.current, True, WHITE)
+    surface.blit(txt, txt.get_rect(center=(WIDTH // 2, HEIGHT // 2)))
+
+    ticks = pygame.time.get_ticks()
+    if typewriter.done and (ticks // 500) % 2 == 0:
+        p = font_sm.render("▶ Enter", True, (160, 160, 160))
+        surface.blit(p, (box_x + box_w - p.get_width() - 12,
+                         box_y + box_h - p.get_height() - 8))
+
 def draw_scene(surface, player, god, lightning_bolts,
                door_open, entrance_closed,
                tree_center, door_rects,
@@ -632,9 +827,10 @@ def main():
     lightning_bolts = []
     shake           = ScreenShake()
 
-    state             = STATE_EXPLORE
-    door_open         = False   # starts closed (player entered from bottom)
-    entrance_closed   = False   # visual state: closed once player walks in
+    cs_index          = 0
+    state             = STATE_CUTSCENE    # ← changed
+    door_open         = False
+    entrance_closed   = False
     god_spawned       = False
     inv_timer         = 0
 
@@ -644,19 +840,19 @@ def main():
 
     door_kicks        = 0
     door_kicks_needed = random.randint(DOOR_KICK_MIN, DOOR_KICK_MAX)
-    door_kick_cd      = 0      # cooldown between kicks
+    door_kick_cd      = 0
 
     red_flash_alpha   = 0
     eating_timer      = 0
 
     typewriter        = Typewriter()
+    typewriter.set_text(CUTSCENE[0][1])   # ← changed
     epilogue_index    = 0
 
     while True:
         clock.tick(60)
         shake.update()
 
-        # ── Events ────────────────────────────────────────────────────────────
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
@@ -664,21 +860,28 @@ def main():
                 if event.key == pygame.K_ESCAPE:
                     pygame.quit(); sys.exit()
 
-                # ── Explore ──
-                if state == STATE_EXPLORE:
+                # ── Cutscene ──────────────────────────────────────────────
+                if state == STATE_CUTSCENE:
+                    if event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                        if not typewriter.done:
+                            typewriter.skip()
+                        else:
+                            cs_index += 1
+                            if cs_index < len(CUTSCENE):
+                                typewriter.set_text(CUTSCENE[cs_index][1])
+                            else:
+                                state = STATE_EXPLORE
+
+                # ── Explore ───────────────────────────────────────────────
+                elif state == STATE_EXPLORE:
                     if event.key == pygame.K_e:
                         tx, ty = tree_center
-
-                        # ── Interact with tree ──
                         if player.near_point(tx, ty, radius=55) and not apple_on_ground:
                             tree_shakes += 1
                             shake.start(18, strength=4)
                             if tree_shakes >= TREE_SHAKE_NEEDED:
-                                # Apple falls just below the tree centre
                                 apple_on_ground = True
                                 apple_pos       = (tx, ty + 24)
-
-                        # ── Pick up apple ──
                         elif apple_on_ground and apple_pos:
                             ax, ay = apple_pos
                             if player.near_point(ax, ay, radius=22):
@@ -689,14 +892,13 @@ def main():
                                     "You feel like you're making a terrible mistake.")
                                 state = STATE_APPLE_DIALOG
 
-                # ── Apple warning dialog ──
                 elif state == STATE_APPLE_DIALOG:
                     if event.key in (pygame.K_RETURN, pygame.K_SPACE):
                         if not typewriter.done:
                             typewriter.skip()
                         else:
                             player.has_apple = False
-                            eating_timer     = 180   # 3 s of chaos
+                            eating_timer     = 180
                             red_flash_alpha  = 0
                             shake.start(180, strength=7)
                             state = STATE_EATING
@@ -705,7 +907,6 @@ def main():
                             except Exception:
                                 pass
 
-                # ── God phase: kick door ──
                 elif state == STATE_GOD_PHASE:
                     if event.key == pygame.K_e:
                         if not door_open \
@@ -717,14 +918,12 @@ def main():
                             if door_kicks >= door_kicks_needed:
                                 door_open = True
 
-                # ── Game over ──
                 elif state == STATE_GAME_OVER:
                     if event.key == pygame.K_r:
                         main(); return
                     if event.key == pygame.K_ESCAPE:
                         pygame.quit(); sys.exit()
 
-                # ── Epilogue ──
                 elif state == STATE_EPILOGUE:
                     if event.key in (pygame.K_RETURN, pygame.K_SPACE):
                         if not typewriter.done:
@@ -740,11 +939,11 @@ def main():
                     if event.key in (pygame.K_RETURN, pygame.K_SPACE):
                         pygame.quit(); sys.exit()
 
-        # ── Typewriter tick ───────────────────────────────────────────────────
-        if state in (STATE_APPLE_DIALOG, STATE_EPILOGUE):
+        # ── Typewriter tick ───────────────────────────────────────────────
+        if state in (STATE_CUTSCENE, STATE_APPLE_DIALOG, STATE_EPILOGUE):
             typewriter.update()
 
-        # ── Eating sequence ───────────────────────────────────────────────────
+        # ── Eating sequence ───────────────────────────────────────────────
         if state == STATE_EATING:
             eating_timer -= 1
             cycle = eating_timer % 30
@@ -753,11 +952,10 @@ def main():
             if eating_timer <= 0:
                 red_flash_alpha = 0
                 shake.start(0)
-                god_spawned = True
-                # Close the door behind the player so they must kick it open
-                door_open   = False
+                god_spawned     = True
+                door_open       = False
                 entrance_closed = True
-                state       = STATE_GOD_PHASE
+                state           = STATE_GOD_PHASE
                 try:
                     pygame.mixer.music.load(
                         os.path.join(BASE_DIR, "audio", "Hostile_March_BattleTheme.wav"))
@@ -766,34 +964,31 @@ def main():
                 except Exception:
                     pass
 
-        # ── Explore movement ──────────────────────────────────────────────────
+        # ── Explore movement ──────────────────────────────────────────────
         if state == STATE_EXPLORE:
             keys = pygame.key.get_pressed()
             player.move(keys, walls, block_top=True)
 
-            # Close door visually once player walks away from bottom
             if not entrance_closed and player.rect.centery < HEIGHT - 8 * T:
                 entrance_closed = True
-                door_open       = False   # door closes behind player
+                door_open       = False
 
-        # ── God phase movement & logic ────────────────────────────────────────
+        # ── God phase movement & logic ────────────────────────────────────
         if state == STATE_GOD_PHASE:
             keys = pygame.key.get_pressed()
-            # Only block top with walls if door not yet open
-            player.move(keys, walls, block_top=not door_open)
+            active_walls = [w for w in walls if not any(
+                w.colliderect(dr) for dr in door_rects)] if door_open else walls
+            player.move(keys, active_walls, block_top=not door_open)
 
             if door_kick_cd  > 0: door_kick_cd  -= 1
             if inv_timer     > 0: inv_timer      -= 1
             if player.inv_timer > 0: player.inv_timer -= 1
 
-            # God moves
             god.update(player.rect)
 
-            # Smite check — instant game over
             if god.in_smite_range(player.rect) and inv_timer <= 0:
                 state = STATE_GAME_OVER
 
-            # Lightning
             for bolt in god.try_spawn_bolts(player.rect):
                 lightning_bolts.append(bolt)
 
@@ -809,7 +1004,6 @@ def main():
                 if done:
                     lightning_bolts.remove(bolt)
 
-            # Holding E to kick while moving
             keys_held = pygame.key.get_pressed()
             if keys_held[pygame.K_e] and not door_open \
                     and player.near_door(door_rects, radius=50) \
@@ -820,27 +1014,20 @@ def main():
                 if door_kicks >= door_kicks_needed:
                     door_open = True
 
-            # Player escapes off the top of the screen
-            if door_open and player.rect.bottom <= 0:
+            if door_open and player.rect.top <= 4 * T:
                 state = STATE_ESCAPED
 
-        # ── Transition to epilogue ─────────────────────────────────────────────
         if state == STATE_ESCAPED:
-            god_spawned     = False
-            lightning_bolts = []
             try:
-                pygame.mixer.music.fadeout(600)
-                pygame.mixer.music.load(
-                    os.path.join(BASE_DIR, "audio", "2. Echoes of the Keep.mp3"))
-                pygame.mixer.music.set_volume(0.4)
-                pygame.mixer.music.play(-1)
-            except Exception:
-                pass
-            typewriter.set_text(EPILOGUE[0][1])
-            epilogue_index = 0
-            state          = STATE_EPILOGUE
+                import TheStatues
+                TheStatues.god_main(god, player.lives)
+            except Exception as e:
+                print(f"[ERROR transitioning to TheStatues.god_main]: {e}")
+                import traceback
+                traceback.print_exc()
+            return
 
-        # ── Draw ──────────────────────────────────────────────────────────────
+        # ── Draw ──────────────────────────────────────────────────────────
         draw_scene(screen, player, god, lightning_bolts,
                    door_open, entrance_closed,
                    tree_center, door_rects,
@@ -849,11 +1036,12 @@ def main():
                    red_flash_alpha, shake,
                    god_spawned)
 
-        # ── Overlaid UI ───────────────────────────────────────────────────────
-        if state == STATE_APPLE_DIALOG:
+        if state == STATE_CUTSCENE:
+            draw_cutscene_line(screen, "NARRATE", typewriter)
+
+        elif state == STATE_APPLE_DIALOG:
             draw_simple_dialog(screen,
-                ["You feel like you're making a terrible mistake.",
-                 "..."],
+                ["You feel like you're making a terrible mistake.", "..."],
                 [("Enter", "Take a bite anyway")])
 
         elif state == STATE_EATING:

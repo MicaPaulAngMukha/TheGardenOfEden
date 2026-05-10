@@ -160,15 +160,68 @@ def fade_to_black():
 
 
 # --- Player ---
+class PlayerSprites:
+    # Adjust row order to match your sheet
+    ROWS = {"up": 0, "left": 1, "down": 2, "right": 3}
+
+    def __init__(self, scale=1):
+        base = os.path.join(BASE_DIR, "Sprites", "Player")
+
+        def load_dir(filename, frames_per_row):
+            path = os.path.join(base, filename)
+            return {
+                dir: SpriteSheet(path, 64, 64, frames_per_row, row=row, scale=scale)
+                for dir, row in self.ROWS.items()
+            }
+
+        self.anims = {
+            "idle": load_dir("idle.png", 2),
+            "run":  load_dir("run.png",  6),   # adjust frame count if needed
+        }
+        # Hurt is a single row, no direction
+        hurt_path = os.path.join(base, "hurt.png")
+        self.hurt_anim = SpriteSheet(hurt_path, 64, 64, 6, row=0, scale=scale)
+
+        self.current_anim = "idle"
+        self.current_dir  = "up"   # ← starts facing up (back to screen)
+        self.showing_hurt = False
+
+    def set_anim(self, anim, direction=None):
+        if direction:
+            self.current_dir = direction
+        if anim != self.current_anim:
+            self.current_anim = anim
+            if anim in self.anims:
+                self.anims[anim][self.current_dir].reset()
+
+    def show_hurt(self):
+        self.showing_hurt = True
+        self.hurt_anim.reset()
+
+    def update(self):
+        if self.showing_hurt:
+            self.hurt_anim.update()
+            if self.hurt_anim.index == len(self.hurt_anim.frames) - 1:
+                self.showing_hurt = False  # snap back after hurt plays once
+        elif self.current_anim in self.anims:
+            self.anims[self.current_anim][self.current_dir].update()
+
+    def get_frame(self):
+        if self.showing_hurt:
+            return self.hurt_anim.current()
+        return self.anims[self.current_anim][self.current_dir].current()
+
 class Player:
     SIZE = 20
     SPEED = 3
 
     def __init__(self):
-        self.lives = 3  # ← add this
+        self.lives = 3
         self.rect = pygame.Rect(WIDTH // 2 - self.SIZE // 2,
                                 MAP_BOTTOM - 60, self.SIZE, self.SIZE)
         self.has_key = False
+        self.sprites = PlayerSprites(scale=1)
+        self._moving = False
 
     def move(self, keys, bushes):
         dx, dy = 0, 0
@@ -176,6 +229,17 @@ class Player:
         if keys[pygame.K_RIGHT] or keys[pygame.K_d]: dx =  self.SPEED
         if keys[pygame.K_UP]    or keys[pygame.K_w]: dy = -self.SPEED
         if keys[pygame.K_DOWN]  or keys[pygame.K_s]: dy =  self.SPEED
+
+        self._moving = (dx != 0 or dy != 0)
+
+        # Update direction and animation
+        if dx != 0 or dy != 0:
+            if abs(dx) > abs(dy):
+                self.sprites.set_anim("run", "right" if dx > 0 else "left")
+            else:
+                self.sprites.set_anim("run", "down" if dy > 0 else "up")
+        else:
+            self.sprites.set_anim("idle")
 
         self.rect.x += dx
         self._clamp()
@@ -210,13 +274,16 @@ class Player:
         trigger = GATE_RECT.inflate(60, 50)
         return trigger.collidepoint(self.rect.centerx, self.rect.centery)
 
+    def trigger_hurt(self):
+        self.sprites.show_hurt()
+
     def draw(self, surface):
-        shadow_surf = pygame.Surface((self.SIZE + 6, 8), pygame.SRCALPHA)
-        pygame.draw.ellipse(shadow_surf, (0, 0, 0, 80), shadow_surf.get_rect())
-        surface.blit(shadow_surf, (self.rect.x - 3, self.rect.bottom - 4))
-        pygame.draw.rect(surface, PLAYER_COLOR, self.rect, border_radius=5)
-        pygame.draw.circle(surface, (210, 170, 120),
-                           (self.rect.centerx, self.rect.top + 5), 7)
+        self.sprites.update()
+        frame = self.sprites.get_frame()
+        # Centre sprite on the player rect
+        draw_x = self.rect.centerx - frame.get_width() // 2
+        draw_y = self.rect.centery - frame.get_height() // 2
+        surface.blit(frame, (draw_x, draw_y))
         if self.has_key:
             surface.blit(key_img, (self.rect.centerx - 8, self.rect.top - 20))
 
@@ -810,6 +877,7 @@ def main():
                 mikhail.chase(player.rect)
                 if mikhail.rect.colliderect(player.rect):
                     player.lives -= 1
+                    player.trigger_hurt()  # ← add this
                     push_vx, push_vy, push_timer = compute_push(
                         player.rect, mikhail.rect, 2)
                     state = STATE_GAME_OVER if player.lives <= 0 else STATE_HIT

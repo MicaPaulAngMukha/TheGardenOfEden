@@ -220,6 +220,126 @@ def find_path(start, goal, wall_set):
 # =============================================================================
 # PLAYER
 # =============================================================================
+class SpriteSheet:
+    def __init__(self, path, frame_w, frame_h, num_frames, row=0, scale=1, speed=8):
+        sheet = pygame.image.load(path).convert_alpha()
+        sw, sh = sheet.get_size()
+
+        # Derive safe dimensions directly from sheet size and frame counts
+        num_rows = 4                          # all guardian sheets have 4 direction rows
+        safe_fw  = sw // num_frames           # exact frame width
+        safe_fh  = sh // num_rows             # exact frame height
+
+        self.frames = []
+        for i in range(num_frames):
+            x_off = i * safe_fw
+            y_off = row * safe_fh
+            # Guard against any remaining OOB
+            if x_off + safe_fw > sw or y_off + safe_fh > sh:
+                break
+            frame = sheet.subsurface((x_off, y_off, safe_fw, safe_fh))
+            if scale != 1:
+                frame = pygame.transform.scale(
+                    frame, (int(safe_fw * scale), int(safe_fh * scale)))
+            self.frames.append(frame)
+
+        if not self.frames:
+            fallback = pygame.Surface((max(safe_fw, 1), max(safe_fh, 1)), pygame.SRCALPHA)
+            self.frames = [fallback]
+
+        self.index = 0
+        self.timer = 0
+        self.speed = speed
+
+    def update(self):
+        self.timer += 1
+        if self.timer >= self.speed:
+            self.timer = 0
+            self.index = (self.index + 1) % len(self.frames)
+
+    def current(self):
+        return self.frames[self.index]
+
+    def reset(self):
+        self.index = 0
+        self.timer = 0
+
+class PlayerSpriteSheet:
+    def __init__(self, path, frame_w, frame_h, num_frames, row=0, scale=1, speed=8):
+        sheet = pygame.image.load(path).convert_alpha()
+        self.frames = []
+        for i in range(num_frames):
+            frame = sheet.subsurface((i * frame_w, row * frame_h, frame_w, frame_h))
+            if scale != 1:
+                frame = pygame.transform.scale(
+                    frame, (int(frame_w * scale), int(frame_h * scale)))
+            self.frames.append(frame)
+        self.index = 0
+        self.timer = 0
+        self.speed = speed
+
+    def update(self):
+        self.timer += 1
+        if self.timer >= self.speed:
+            self.timer = 0
+            self.index = (self.index + 1) % len(self.frames)
+
+    def current(self):
+        return self.frames[self.index]
+
+    def reset(self):
+        self.index = 0
+        self.timer = 0
+
+class PlayerSprites:
+    ROWS = {"up": 0, "left": 1, "down": 2, "right": 3}
+
+    def __init__(self, scale=1):
+        base = os.path.join(BASE_DIR, "Sprites", "Player")
+
+        def load_dir(filename, frames_per_row):
+            path = os.path.join(base, filename)
+            return {
+                d: PlayerSpriteSheet(path, 64, 64, frames_per_row, row=row, scale=scale)
+                for d, row in self.ROWS.items()
+            }
+
+        self.anims = {
+            "idle": load_dir("idle.png", 2),
+            "run":  load_dir("run.png",  6),
+        }
+        hurt_path = os.path.join(base, "hurt.png")
+        self.hurt_anim = PlayerSpriteSheet(hurt_path, 64, 64, 6, row=0, scale=scale)
+
+        self.current_anim = "idle"
+        self.current_dir  = "down"
+        self.showing_hurt = False
+
+    def set_anim(self, anim, direction=None):
+        if direction:
+            self.current_dir = direction
+        if anim != self.current_anim:
+            self.current_anim = anim
+            if anim in self.anims:
+                self.anims[anim][self.current_dir].reset()
+
+    def show_hurt(self):
+        self.showing_hurt = True
+        self.hurt_anim.reset()
+
+    def update(self):
+        if self.showing_hurt:
+            self.hurt_anim.update()
+            if self.hurt_anim.index == len(self.hurt_anim.frames) - 1:
+                self.showing_hurt = False
+        elif self.current_anim in self.anims:
+            self.anims[self.current_anim][self.current_dir].update()
+
+    def get_frame(self):
+        if self.showing_hurt:
+            return self.hurt_anim.current()
+        return self.anims[self.current_anim][self.current_dir].current()
+
 class Player:
     SPEED = 3
 
@@ -228,8 +348,10 @@ class Player:
         self.has_key    = False
         self.has_hammer = False
         self.inv_timer  = 0
+        self.sprites    = PlayerSprites(scale=1)
         self.rect       = pygame.Rect(0, 0, PLAYER_SIZE, PLAYER_SIZE)
         self.rect.center = PLAYER_SPAWN
+        self.sprites.set_anim("idle", "down")
 
     def move(self, keys, walls):
         dx = dy = 0
@@ -237,6 +359,14 @@ class Player:
         if keys[pygame.K_RIGHT] or keys[pygame.K_d]: dx =  self.SPEED
         if keys[pygame.K_UP]    or keys[pygame.K_w]: dy = -self.SPEED
         if keys[pygame.K_DOWN]  or keys[pygame.K_s]: dy =  self.SPEED
+
+        if dx != 0 or dy != 0:
+            if abs(dx) > abs(dy):
+                self.sprites.set_anim("run", "right" if dx > 0 else "left")
+            else:
+                self.sprites.set_anim("run", "down" if dy > 0 else "up")
+        else:
+            self.sprites.set_anim("idle")
 
         self.rect.x += dx
         for w in walls:
@@ -252,12 +382,17 @@ class Player:
 
         self.rect.clamp_ip(pygame.Rect(0, 0, WIDTH, HEIGHT))
 
+    def trigger_hurt(self):
+        self.sprites.show_hurt()
+
     def draw(self, surface):
         if self.inv_timer > 0 and (self.inv_timer // 5) % 2 == 0:
             return
-        pygame.draw.rect(surface, PLAYER_COL, self.rect, border_radius=3)
-        pygame.draw.circle(surface, PLAYER_HEAD,
-                           (self.rect.centerx, self.rect.top + 4), 5)
+        self.sprites.update()
+        frame  = self.sprites.get_frame()
+        draw_x = self.rect.centerx - frame.get_width()  // 2
+        draw_y = self.rect.centery - frame.get_height() // 2
+        surface.blit(frame, (draw_x, draw_y))
         if self.has_hammer:
             pygame.draw.rect(surface, HAMMER_COL,
                              pygame.Rect(self.rect.right + 3, self.rect.top, 6, 10),
@@ -911,7 +1046,7 @@ class Lightning:
 # =============================================================================
 # GOD_MAIN  —  backtrack mode (god chasing player back through empty room)
 # =============================================================================
-def god_main(god):
+def god_main(god, lives=MAX_LIVES):
     """
     Called from TheGarden when the player escapes back through the Garden exit.
     The statue room is empty — all statues already smashed. The god chases the
@@ -934,8 +1069,9 @@ def god_main(god):
     DOOR_KICK_MAX = 8
 
     player = Player()
-    player.rect.x = WIDTH // 2 - PLAYER_SIZE // 2
-    player.rect.y = HEIGHT - 60  # spawn at bottom (exit tiles area)
+    player.lives = lives
+    player.rect.x = 29 * T  # center of exit door columns 27-31
+    player.rect.y = HEIGHT - 7 * T  # just above the bottom exit door # spawn at bottom (exit tiles area)
     door_rects = entrance_tiles # enters from top
     lightning_bolts = []
     inv_timer = 120
@@ -981,7 +1117,12 @@ def god_main(god):
 
         if state == STATE_PLAY:
             keys = pygame.key.get_pressed()
-            player.move(keys, walls)
+            if door_open and entrance_tiles:
+                entrance_set = {(r.x, r.y) for r in entrance_tiles}
+                active_walls = [w for w in walls if (w.x, w.y) not in entrance_set]
+            else:
+                active_walls = walls
+            player.move(keys, active_walls)
 
             # Hold E to kick
             if door_kick_cd > 0: door_kick_cd -= 1
@@ -1021,11 +1162,10 @@ def god_main(god):
                     door_open = True
 
             # Player exits through the bottom
-            if door_open and entrance_tiles:
-                entrance_zone = entrance_tiles[0].unionall(entrance_tiles[1:]) if len(entrance_tiles) > 1 else \
-                entrance_tiles[0]
-                if player.rect.colliderect(entrance_zone.inflate(20, 40)):
-                    TheGuardian.god_main(god)
+            if door_open:
+                exit_zone = pygame.Rect(0, HEIGHT - 4 * T, WIDTH, 4 * T)
+                if player.rect.colliderect(exit_zone):
+                    TheGuardian.god_main(god, player.lives)
                     return
 
         # ── Draw ──────────────────────────────────────────────────────────────
@@ -1038,9 +1178,12 @@ def god_main(god):
             if layer.name in STATUE_TMX_LAYERS:
                 continue   # room is empty, statues gone
             # Show bottom exit as open if door kicked open, closed otherwise
-            if layer.name in ("Exit - Open", "Exit2 - Open") and not door_open:
-                continue
-            if layer.name in ("Exit", "Exit2") and door_open:
+            if layer.name in ("Entracne - Open", "Entrance2 - Open") and not door_open:
+                continue  # hide open variant until kicked
+            if layer.name in ("Entrance", "Entrance2") and door_open:
+                continue  # hide closed variant once kicked open
+            # Exit (bottom) — player entered from here, always show as open
+            if layer.name in ("Exit", "Exit2"):
                 continue
             for x, y, gid in layer:
                 tile = tmx_data.get_tile_image_by_gid(gid)

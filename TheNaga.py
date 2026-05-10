@@ -97,9 +97,87 @@ def build_from_tmx():
 
     return walls, green_walls, red_walls, green_lever, red_lever, naga_spawn, empty_tiles
 
+class SpriteSheet:
+    def __init__(self, path, frame_w, frame_h, num_frames, row=0, scale=1):
+        sheet = pygame.image.load(path).convert_alpha()
+        self.frames = []
+        for i in range(num_frames):
+            frame = sheet.subsurface((i * frame_w, row * frame_h, frame_w, frame_h))
+            if scale != 1:
+                frame = pygame.transform.scale(frame,
+                    (int(frame_w * scale), int(frame_h * scale)))
+            self.frames.append(frame)
+        self.index = 0
+        self.timer = 0
+        self.speed = 8
+
+    def update(self):
+        self.timer += 1
+        if self.timer >= self.speed:
+            self.timer = 0
+            self.index = (self.index + 1) % len(self.frames)
+
+    def current(self):
+        return self.frames[self.index]
+
+    def reset(self):
+        self.index = 0
+        self.timer = 0
+
 # ─────────────────────────────────────────────────────────────────────────────
 # PLAYER
 # ─────────────────────────────────────────────────────────────────────────────
+class PlayerSprites:
+    # Adjust row order to match your sheet
+    ROWS = {"up": 0, "left": 1, "down": 2, "right": 3}
+
+    def __init__(self, scale=1):
+        base = os.path.join(BASE_DIR, "Sprites", "Player")
+
+        def load_dir(filename, frames_per_row):
+            path = os.path.join(base, filename)
+            return {
+                dir: SpriteSheet(path, 64, 64, frames_per_row, row=row, scale=scale)
+                for dir, row in self.ROWS.items()
+            }
+
+        self.anims = {
+            "idle": load_dir("idle.png", 2),
+            "run":  load_dir("run.png",  6),   # adjust frame count if needed
+        }
+        # Hurt is a single row, no direction
+        hurt_path = os.path.join(base, "hurt.png")
+        self.hurt_anim = SpriteSheet(hurt_path, 64, 64, 6, row=0, scale=scale)
+
+        self.current_anim = "idle"
+        self.current_dir  = "up"   # ← starts facing up (back to screen)
+        self.showing_hurt = False
+
+    def set_anim(self, anim, direction=None):
+        if direction:
+            self.current_dir = direction
+        if anim != self.current_anim:
+            self.current_anim = anim
+            if anim in self.anims:
+                self.anims[anim][self.current_dir].reset()
+
+    def show_hurt(self):
+        self.showing_hurt = True
+        self.hurt_anim.reset()
+
+    def update(self):
+        if self.showing_hurt:
+            self.hurt_anim.update()
+            if self.hurt_anim.index == len(self.hurt_anim.frames) - 1:
+                self.showing_hurt = False  # snap back after hurt plays once
+        elif self.current_anim in self.anims:
+            self.anims[self.current_anim][self.current_dir].update()
+
+    def get_frame(self):
+        if self.showing_hurt:
+            return self.hurt_anim.current()
+        return self.anims[self.current_anim][self.current_dir].current()
+
 PLAYER_SIZE = 14
 MAX_LIVES   = 3
 
@@ -108,11 +186,19 @@ class Player:
 
     def __init__(self):
         self.lives = MAX_LIVES
+        self.sprites = PlayerSprites(scale=1)
         self.reset()
 
     def reset(self):
         self.rect = pygame.Rect(0, 0, PLAYER_SIZE, PLAYER_SIZE)
         self.rect.center = PLAYER_SPAWN
+        self.sprites.set_anim("idle", "down")
+
+    def near_lever(self, lever_tile):          # ← this was missing
+        if lever_tile is None:
+            return False
+        interact_box = tile_rect(*lever_tile).inflate(T * 3, T * 3)
+        return interact_box.colliderect(self.rect)
 
     def move(self, keys, solid_rects):
         dx = dy = 0
@@ -120,6 +206,14 @@ class Player:
         if keys[pygame.K_RIGHT] or keys[pygame.K_d]: dx =  self.SPEED
         if keys[pygame.K_UP]    or keys[pygame.K_w]: dy = -self.SPEED
         if keys[pygame.K_DOWN]  or keys[pygame.K_s]: dy =  self.SPEED
+
+        if dx != 0 or dy != 0:
+            if abs(dx) > abs(dy):
+                self.sprites.set_anim("run", "right" if dx > 0 else "left")
+            else:
+                self.sprites.set_anim("run", "down" if dy > 0 else "up")
+        else:
+            self.sprites.set_anim("idle")
 
         self.rect.x += dx
         for r in solid_rects:
@@ -135,16 +229,15 @@ class Player:
 
         self.rect.clamp_ip(pygame.Rect(0, 0, WIDTH, HEIGHT))
 
-    def near_lever(self, lever_tile):
-        if lever_tile is None:
-            return False
-        interact_box = tile_rect(*lever_tile).inflate(T * 3, T * 3)
-        return interact_box.colliderect(self.rect)
+    def trigger_hurt(self):
+        self.sprites.show_hurt()
 
     def draw(self, surface):
-        pygame.draw.rect(surface, PLAYER_COL, self.rect, border_radius=3)
-        pygame.draw.circle(surface, PLAYER_HEAD,
-                           (self.rect.centerx, self.rect.top + 4), 5)
+        self.sprites.update()
+        frame = self.sprites.get_frame()
+        draw_x = self.rect.centerx - frame.get_width() // 2
+        draw_y = self.rect.centery - frame.get_height() // 2
+        surface.blit(frame, (draw_x, draw_y))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # NAGA
@@ -454,6 +547,7 @@ def main():
             if inv_timer <= 0:
                 if naga.head_rect().colliderect(player.rect):
                     player.lives -= 1
+                    player.trigger_hurt()  # ← add this
                     state = STATE_GAME_OVER if player.lives <= 0 else STATE_HIT
             else:
                 inv_timer -= 1

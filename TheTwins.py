@@ -6,6 +6,7 @@ import random
 import pytmx
 import collections
 import TheGuardian
+import TheGarden
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -199,24 +200,76 @@ def find_path(start, goal, wall_set, extra_walls=None):
 # ─────────────────────────────────────────────────────────────────────────────
 # PLAYER
 # ─────────────────────────────────────────────────────────────────────────────
+class PlayerSprites:
+    # Adjust row order to match your sheet
+    ROWS = {"up": 0, "left": 1, "down": 2, "right": 3}
+
+    def __init__(self, scale=1):
+        base = os.path.join(BASE_DIR, "Sprites", "Player")
+
+        def load_dir(filename, frames_per_row):
+            path = os.path.join(base, filename)
+            return {
+                dir: SpriteSheet(path, 64, 64, frames_per_row, row=row, scale=scale)
+                for dir, row in self.ROWS.items()
+            }
+
+        self.anims = {
+            "idle": load_dir("idle.png", 2),
+            "run":  load_dir("run.png",  6),   # adjust frame count if needed
+        }
+        # Hurt is a single row, no direction
+        hurt_path = os.path.join(base, "hurt.png")
+        self.hurt_anim = SpriteSheet(hurt_path, 64, 64, 6, row=0, scale=scale)
+
+        self.current_anim = "idle"
+        self.current_dir  = "up"   # ← starts facing up (back to screen)
+        self.showing_hurt = False
+
+    def set_anim(self, anim, direction=None):
+        if direction:
+            self.current_dir = direction
+        if anim != self.current_anim:
+            self.current_anim = anim
+            if anim in self.anims:
+                self.anims[anim][self.current_dir].reset()
+
+    def show_hurt(self):
+        self.showing_hurt = True
+        self.hurt_anim.reset()
+
+    def update(self):
+        if self.showing_hurt:
+            self.hurt_anim.update()
+            if self.hurt_anim.index == len(self.hurt_anim.frames) - 1:
+                self.showing_hurt = False  # snap back after hurt plays once
+        elif self.current_anim in self.anims:
+            self.anims[self.current_anim][self.current_dir].update()
+
+    def get_frame(self):
+        if self.showing_hurt:
+            return self.hurt_anim.current()
+        return self.anims[self.current_anim][self.current_dir].current()
+
 class Player:
     SPEED = 5
 
     def __init__(self):
-        self.lives      = MAX_LIVES
-        self.stun_timer = 0
-        self.push_vx    = 0
-        self.push_vy    = 0
-        self.abel_caught = False  # first catch flag
+        self.lives       = MAX_LIVES
+        self.stun_timer  = 0
+        self.push_vx     = 0
+        self.push_vy     = 0
+        self.abel_caught = False
+        self.sprites     = PlayerSprites(scale=1)
         self.reset()
 
     def reset(self):
         self.rect = pygame.Rect(0, 0, PLAYER_SIZE, PLAYER_SIZE)
         self.rect.center = PLAYER_SPAWN
+        self.sprites.set_anim("idle", "down")
 
     def move(self, keys, solid_rects):
         if self.stun_timer > 0:
-            # Being pushed
             self.stun_timer -= 1
             nx = self.rect.x + self.push_vx
             ny = self.rect.y + self.push_vy
@@ -231,7 +284,7 @@ class Player:
                 self.lives -= 1
                 self.stun_timer = 0
                 self.push_vx = self.push_vy = 0
-                return True  # signal life lost from wall
+                return True
             self.rect.x = int(nx)
             self.rect.y = int(ny)
             self.rect.clamp_ip(pygame.Rect(0, 0, WIDTH, HEIGHT))
@@ -242,6 +295,14 @@ class Player:
         if keys[pygame.K_RIGHT] or keys[pygame.K_d]: dx =  self.SPEED
         if keys[pygame.K_UP]    or keys[pygame.K_w]: dy = -self.SPEED
         if keys[pygame.K_DOWN]  or keys[pygame.K_s]: dy =  self.SPEED
+
+        if dx != 0 or dy != 0:
+            if abs(dx) > abs(dy):
+                self.sprites.set_anim("run", "right" if dx > 0 else "left")
+            else:
+                self.sprites.set_anim("run", "down" if dy > 0 else "up")
+        else:
+            self.sprites.set_anim("idle")
 
         self.rect.x += dx
         for r in solid_rects:
@@ -272,12 +333,17 @@ class Player:
             return False
         return tile_rect(*tile_pos).inflate(T*radius, T*radius).colliderect(self.rect)
 
+    def trigger_hurt(self):
+        self.sprites.show_hurt()
+
     def draw(self, surface, inv_timer):
         if inv_timer > 0 and (inv_timer // 5) % 2 == 0:
             return  # flash during invincibility
-        pygame.draw.rect(surface, PLAYER_COL, self.rect, border_radius=3)
-        pygame.draw.circle(surface, PLAYER_HEAD,
-                           (self.rect.centerx, self.rect.top + 4), 5)
+        self.sprites.update()
+        frame  = self.sprites.get_frame()
+        draw_x = self.rect.centerx - frame.get_width()  // 2
+        draw_y = self.rect.centery - frame.get_height() // 2
+        surface.blit(frame, (draw_x, draw_y))
         if self.stun_timer > 0:
             pygame.draw.circle(surface, STUN_COL,
                                (self.rect.centerx, self.rect.top - 8), 5, 2)

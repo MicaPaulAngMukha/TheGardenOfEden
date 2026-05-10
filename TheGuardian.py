@@ -62,14 +62,11 @@ DIALOG_W      = 700
 DIALOG_H      = 180
 
 try:
-    _port_raw = pygame.image.load(
-        os.path.join(BASE_DIR, "Sprites", "Guardian", "guardian_idle.png")).convert_alpha()
-    # Sheet is 104x208, 2 cols x 4 rows -> each frame is 52x52
-    # Row 2 = "down" facing direction, frame 0
-    _frame_w = _port_raw.get_width()  // 2   # 52
-    _frame_h = _port_raw.get_height() // 4   # 52
-    _frame   = _port_raw.subsurface((_frame_w * 0, _frame_h * 2, _frame_w, _frame_h))
-    portrait_guardian = pygame.transform.scale(_frame, (PORTRAIT_SIZE, PORTRAIT_SIZE))
+    portrait_guardian = pygame.transform.scale(
+        pygame.image.load(
+            os.path.join(BASE_DIR, "Sprites", "Guardian", "Guardian.png")
+        ).convert_alpha(),
+        (PORTRAIT_SIZE, PORTRAIT_SIZE))
 except Exception:
     portrait_guardian = None
 
@@ -256,8 +253,10 @@ class Player:
         self.lives     = MAX_LIVES
         self.has_key   = False
         self.inv_timer = 0
+        self.sprites   = PlayerSprites(scale=1)
         self.rect      = pygame.Rect(0, 0, PLAYER_SIZE, PLAYER_SIZE)
         self.rect.center = PLAYER_SPAWN
+        self.sprites.set_anim("idle", "down")
 
     def move(self, keys, walls):
         dx = dy = 0
@@ -265,6 +264,14 @@ class Player:
         if keys[pygame.K_RIGHT] or keys[pygame.K_d]: dx =  self.SPEED
         if keys[pygame.K_UP]    or keys[pygame.K_w]: dy = -self.SPEED
         if keys[pygame.K_DOWN]  or keys[pygame.K_s]: dy =  self.SPEED
+
+        if dx != 0 or dy != 0:
+            if abs(dx) > abs(dy):
+                self.sprites.set_anim("run", "right" if dx > 0 else "left")
+            else:
+                self.sprites.set_anim("run", "down" if dy > 0 else "up")
+        else:
+            self.sprites.set_anim("idle")
 
         moved = dx != 0 or dy != 0
 
@@ -283,12 +290,17 @@ class Player:
         self.rect.clamp_ip(pygame.Rect(0, 0, WIDTH, HEIGHT))
         return moved
 
+    def trigger_hurt(self):
+        self.sprites.show_hurt()
+
     def draw(self, surface):
         if self.inv_timer > 0 and (self.inv_timer // 5) % 2 == 0:
-            return
-        pygame.draw.rect(surface, PLAYER_COL, self.rect, border_radius=3)
-        pygame.draw.circle(surface, PLAYER_HEAD,
-                           (self.rect.centerx, self.rect.top + 4), 5)
+            return  # this is already correct — make sure inv_timer starts at 0
+        self.sprites.update()
+        frame = self.sprites.get_frame()
+        draw_x = self.rect.centerx - frame.get_width() // 2
+        draw_y = self.rect.centery - frame.get_height() // 2
+        surface.blit(frame, (draw_x, draw_y))
         if self.has_key and key_img:
             surface.blit(key_img, (self.rect.centerx - 8, self.rect.top - 20))
 
@@ -339,6 +351,83 @@ class SpriteSheet:
     def reset(self):
         self.index = 0
         self.timer = 0
+
+class PlayerSpriteSheet:
+    """Simple sprite sheet loader for the player — does NOT assume 4 rows."""
+    def __init__(self, path, frame_w, frame_h, num_frames, row=0, scale=1, speed=8):
+        sheet = pygame.image.load(path).convert_alpha()
+        self.frames = []
+        for i in range(num_frames):
+            frame = sheet.subsurface((i * frame_w, row * frame_h, frame_w, frame_h))
+            if scale != 1:
+                frame = pygame.transform.scale(
+                    frame, (int(frame_w * scale), int(frame_h * scale)))
+            self.frames.append(frame)
+        self.index = 0
+        self.timer = 0
+        self.speed = speed
+
+    def update(self):
+        self.timer += 1
+        if self.timer >= self.speed:
+            self.timer = 0
+            self.index = (self.index + 1) % len(self.frames)
+
+    def current(self):
+        return self.frames[self.index]
+
+    def reset(self):
+        self.index = 0
+        self.timer = 0
+
+class PlayerSprites:
+    ROWS = {"up": 0, "left": 1, "down": 2, "right": 3}
+
+    def __init__(self, scale=1):
+        base = os.path.join(BASE_DIR, "Sprites", "Player")
+
+        def load_dir(filename, frames_per_row):
+            path = os.path.join(base, filename)
+            return {
+                d: PlayerSpriteSheet(path, 64, 64, frames_per_row, row=row, scale=scale)
+                for d, row in self.ROWS.items()
+            }
+
+        self.anims = {
+            "idle": load_dir("idle.png", 2),
+            "run":  load_dir("run.png",  6),
+        }
+        hurt_path = os.path.join(base, "hurt.png")
+        self.hurt_anim = PlayerSpriteSheet(hurt_path, 64, 64, 6, row=0, scale=scale)
+
+        self.current_anim = "idle"
+        self.current_dir  = "down"
+        self.showing_hurt = False
+
+    def set_anim(self, anim, direction=None):
+        if direction:
+            self.current_dir = direction
+        if anim != self.current_anim:
+            self.current_anim = anim
+            if anim in self.anims:
+                self.anims[anim][self.current_dir].reset()
+
+    def show_hurt(self):
+        self.showing_hurt = True
+        self.hurt_anim.reset()
+
+    def update(self):
+        if self.showing_hurt:
+            self.hurt_anim.update()
+            if self.hurt_anim.index == len(self.hurt_anim.frames) - 1:
+                self.showing_hurt = False
+        elif self.current_anim in self.anims:
+            self.anims[self.current_anim][self.current_dir].update()
+
+    def get_frame(self):
+        if self.showing_hurt:
+            return self.hurt_anim.current()
+        return self.anims[self.current_anim][self.current_dir].current()
 
 
 # =============================================================================
@@ -704,7 +793,6 @@ def main():
     typewriter.set_text(current_dialog[0][1])
 
     alert_timer  = 0
-    inv_timer    = 0
 
     slash_playing    = False
     slash_done_timer = SLASH_FRAMES * 7
@@ -755,13 +843,10 @@ def main():
                     elif event.key == pygame.K_n:
                         state = STATE_PLAY
 
-
                 elif state == STATE_HIT:
-
                     if event.key in (pygame.K_RETURN, pygame.K_SPACE):
                         player.rect.center = PLAYER_SPAWN
-                        inv_timer = INVINCIBLE_FRAMES
-                        player.inv_timer = INVINCIBLE_FRAMES  # ← add this
+                        player.inv_timer = INVINCIBLE_FRAMES
                         state = STATE_PLAY
 
                 elif state == STATE_GAME_OVER:
@@ -816,8 +901,6 @@ def main():
                 typewriter.set_text(current_dialog[0][1])
                 state = STATE_WARNING
 
-            if inv_timer > 0:
-                inv_timer -= 1
             if player.inv_timer > 0:
                 player.inv_timer -= 1
 
@@ -901,12 +984,14 @@ def main():
                     guardian.speed = GUARD_SPEED_NORMAL
                     guardian.update_roam(wall_set)
 
-            else:
-                guardian.update_roam(wall_set)
 
-            if darkness_active and guardian.touches(player.rect) and inv_timer <= 0:
+            else:
+                if player_has_moved:
+                    guardian.update_roam(wall_set)
+
+            if darkness_active and guardian.touches(player.rect) and player.inv_timer <= 0:
                 player.lives -= 1
-                inv_timer = INVINCIBLE_FRAMES
+                player.inv_timer = INVINCIBLE_FRAMES
                 state = STATE_GAME_OVER if player.lives <= 0 else STATE_HIT
 
             if player.has_key and player.rect.top >= HEIGHT - 2 * T:
@@ -963,7 +1048,7 @@ def _near_door_guardian(player_rect, door_rects, radius=50):
     return door_union.inflate(radius * 2, radius * 2).colliderect(player_rect)
 
 
-def god_main(god):
+def god_main(god, lives=MAX_LIVES):
     """
     Backtrack pass through The Guardian's maze.
     - Guardian is disabled entirely (gone).
@@ -973,7 +1058,6 @@ def god_main(god):
     - Music already playing (Hostile_March_BattleTheme.wav), no reload.
     - On exit: calls next level in chain (Twins / Naga — add when ready).
     """
-    from TheGarden import Lightning
 
     DOOR_KICK_MIN = 4
     DOOR_KICK_MAX = 8
@@ -981,7 +1065,9 @@ def god_main(god):
     walls, wall_set, bush_tiles, exit_tiles, entrance_tiles, walls_exit = build_from_tmx()
 
     player             = Player()
-    player.rect.center = (WIDTH // 2, 60)   # enters from top (Statues side)
+    player.lives = lives
+    player.rect.x = WIDTH // 2 - PLAYER_SIZE // 2
+    player.rect.y = HEIGHT - 60  # spawn at bottom (exit tiles area)
     player.lives       = MAX_LIVES
 
     lightning_bolts   = []
