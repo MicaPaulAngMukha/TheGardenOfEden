@@ -90,6 +90,7 @@ def build_from_tmx():
     cain_spawn       = None
     interactive_tiles = []
     exit_tiles       = []
+    entrance_tiles   = []   # ← add
 
     for layer in tmx_data.layers:
         if not isinstance(layer, pytmx.TiledTileLayer):
@@ -110,15 +111,16 @@ def build_from_tmx():
                 cain_spawn = (x, y)
             elif layer.name in ("InteractiveItemsLayer", "InteractiveTileLayer2"):
                 interactive_tiles.append((x, y))
-            elif layer.name in ("Ground", "GRass"):
+            elif layer.name in ("Exit", "Exit2"):      # ← fixed
                 exit_tiles.append(r)
+            elif layer.name in ("Entrance", "Entrance2"):  # ← add
+                entrance_tiles.append(r)
 
-    # Build wall set for fast BFS lookup
     wall_set = set()
     for w in walls:
         wall_set.add((w.x // T, w.y // T))
 
-    return walls, wall_set, abel_ban_tile, cain_ban_tile, abel_spawn, cain_spawn, interactive_tiles
+    return walls, wall_set, abel_ban_tile, cain_ban_tile, abel_spawn, cain_spawn, interactive_tiles, exit_tiles, entrance_tiles
 
 def spawn_fragments(interactive_tiles, wall_set, count=6):
     safe = [(x, y) for (x, y) in interactive_tiles if (x, y) not in wall_set]
@@ -471,20 +473,20 @@ class CainSprites:
     def __init__(self, scale=1):
         base = os.path.join(BASE_DIR, "Sprites", "Cain")
 
-        def load(filename, fw, fh, frames_per_row, speed=12):
+        def load(filename, num_frames, speed=12):
             path = os.path.join(base, filename)
             return {
-                dir: SpriteSheet(path, fw, fh, frames_per_row, row=row, scale=scale)
+                dir: SpriteSheet(path, 64, 64, num_frames, row=row, scale=scale, speed=speed)
                 for dir, row in self.ROWS.items()
             }
 
         self.anims = {
-            "idle": load("cain_idle.png", 30, 50, 2),
-            "walk": load("cain_walk.png", 54, 49, 9, speed = 162),
-            "thrust": load("cain_thrust.png", 54, 64, 8, speed = 160),
+            "idle":   load("cain_idle.png",   2,  speed=14),
+            "walk":   load("cain_walk.png",   9,  speed=8),
+            "thrust": load("cain_thrust.png", 8,  speed=8),
         }
         self.current_anim = "idle"
-        self.current_dir = "down"
+        self.current_dir  = "down"
 
     def set_anim(self, anim, direction=None):
         if direction:
@@ -492,7 +494,6 @@ class CainSprites:
         if anim != self.current_anim:
             self.current_anim = anim
             self.anims[anim][self.current_dir].reset()
-        # ← removed the reset on direction change
 
     def update(self):
         self.anims[self.current_anim][self.current_dir].update()
@@ -503,22 +504,23 @@ class CainSprites:
         draw_y = rect.centery - frame.get_height() // 2
         surface.blit(frame, (draw_x, draw_y))
 
+
 class AbelSprites:
     ROWS = {"up": 0, "right": 3, "down": 2, "left": 1}
 
     def __init__(self, scale=1):
         base = os.path.join(BASE_DIR, "Sprites", "Abel")
 
-        def load(filename, fw, fh, frames_per_row, speed=12):
+        def load(filename, num_frames, speed=12):
             path = os.path.join(base, filename)
             return {
-                dir: SpriteSheet(path, fw, fh, frames_per_row, row=row, scale=scale)
+                dir: SpriteSheet(path, 64, 64, num_frames, row=row, scale=scale, speed=speed)
                 for dir, row in self.ROWS.items()
             }
 
         self.anims = {
-            "idle": load("abel_idle.png", 30, 49, 2),
-            "walk": load("abel_walk.png", 37, 49, 9, speed=120),
+            "idle": load("abel_idle.png", 2, speed=14),
+            "walk": load("abel_walk.png", 9, speed=8),
         }
         self.current_anim = "idle"
         self.current_dir  = "down"
@@ -753,7 +755,7 @@ INVINCIBLE_FRAMES = 90
 # ─────────────────────────────────────────────────────────────────────────────
 def main():
     walls, wall_set, abel_ban_tile, cain_ban_tile, \
-        abel_spawn, cain_spawn, interactive_tiles = build_from_tmx()
+        abel_spawn, cain_spawn, interactive_tiles, exit_tiles, entrance_tiles = build_from_tmx()
 
     fragments = spawn_fragments(interactive_tiles, wall_set, 6)
 
@@ -1043,3 +1045,252 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# =============================================================================
+# LIGHTNING  —  duplicated to avoid circular import
+# =============================================================================
+class Lightning:
+    WARN_FRAMES   = 45
+    LINGER_FRAMES = 28
+
+    def __init__(self, tx, ty):
+        self.x          = tx
+        self.y          = ty
+        self.warn_timer = self.WARN_FRAMES
+        self.live_timer = self.LINGER_FRAMES
+
+    def update(self):
+        if self.warn_timer > 0:
+            self.warn_timer -= 1
+            return False
+        if self.live_timer > 0:
+            self.live_timer -= 1
+            return False
+        return True
+
+    @property
+    def is_live(self):
+        return self.warn_timer <= 0 and self.live_timer > 0
+
+    def hits(self, rect):
+        if not self.is_live:
+            return False
+        return pygame.Rect(self.x - 14, self.y - 14, 28, 28).colliderect(rect)
+
+    def draw(self, surface):
+        if self.warn_timer > 0:
+            alpha = int(200 * (1 - self.warn_timer / self.WARN_FRAMES))
+            ws = pygame.Surface((52, 52), pygame.SRCALPHA)
+            pygame.draw.circle(ws, (255, 60, 60, alpha), (26, 26), 24, 3)
+            surface.blit(ws, (self.x - 26, self.y - 26))
+            return
+        if self.live_timer <= 0:
+            return
+        bright = int(255 * (self.live_timer / self.LINGER_FRAMES))
+        pts = [(self.x, 0)]
+        cy  = 0
+        while cy < self.y:
+            cy += random.randint(18, 34)
+            pts.append((self.x + random.randint(-14, 14), min(cy, self.y)))
+        pts.append((self.x, self.y))
+        if len(pts) >= 2:
+            pygame.draw.lines(surface, (bright, bright, 60), False, pts, 3)
+            pygame.draw.lines(surface, (255, 255, 200),       False, pts, 1)
+        glow = pygame.Surface((60, 60), pygame.SRCALPHA)
+        pygame.draw.ellipse(glow, (255, 240, 80, bright // 2), glow.get_rect())
+        surface.blit(glow, (self.x - 30, self.y - 20))
+
+
+# =============================================================================
+# GOD_MAIN  —  backtrack mode (twins gone, god chasing player to top entrance)
+# =============================================================================
+def _near_door_twins(player_rect, door_rects, radius=50):
+    if not door_rects:
+        return False
+    door_union = door_rects[0].unionall(door_rects[1:])
+    return door_union.inflate(radius * 2, radius * 2).colliderect(player_rect)
+
+
+def god_main(god, lives=MAX_LIVES):
+    """
+    Backtrack pass through The Twins arena.
+    - Both twins gone entirely.
+    - Player spawns at bottom (coming from Guardian), kicks top entrance to exit toward Naga.
+    - Music already playing, no reload.
+    """
+    import TheNaga   # next in backtrack chain
+
+    DOOR_KICK_MIN = 4
+    DOOR_KICK_MAX = 8
+
+    walls, wall_set, abel_ban_tile, cain_ban_tile, \
+        abel_spawn, cain_spawn, interactive_tiles, exit_tiles, entrance_tiles = build_from_tmx()
+
+    player       = Player()
+    player.rect.x = WIDTH // 2 - PLAYER_SIZE // 2
+    player.rect.y = HEIGHT - 60   # spawn at bottom, coming from Guardian
+    player.lives  = lives
+
+    lightning_bolts   = []
+    inv_timer         = 120
+    player.inv_timer  = 120
+
+    door_kicks        = 0
+    door_kicks_needed = random.randint(DOOR_KICK_MIN, DOOR_KICK_MAX)
+    door_kick_cd      = 0
+    door_open         = False
+    door_rects        = entrance_tiles   # top entrance is the door to kick
+
+    god.rect.x     = WIDTH // 2 - god.SIZE // 2
+    god.rect.y     = -120
+    god.bolt_timer = 90
+
+    STATE_RUN  = "run"
+    STATE_DEAD = "dead"
+    state      = STATE_RUN
+
+    while True:
+        clock.tick(60)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    pygame.quit(); sys.exit()
+
+                if state == STATE_RUN:
+                    if event.key == pygame.K_e:
+                        if not door_open \
+                                and _near_door_twins(player.rect, door_rects) \
+                                and door_kick_cd <= 0:
+                            door_kicks += 1
+                            door_kick_cd = 20
+                            if door_kicks >= door_kicks_needed:
+                                door_open = True
+
+                elif state == STATE_DEAD:
+                    if event.key == pygame.K_r:
+                        god_main(god, lives); return
+                    if event.key == pygame.K_ESCAPE:
+                        pygame.quit(); sys.exit()
+
+        if state == STATE_RUN:
+            keys = pygame.key.get_pressed()
+
+            # Remove entrance walls when door is open so player can pass through
+            if door_open and entrance_tiles:
+                entrance_set = {(r.x, r.y) for r in entrance_tiles}
+                active_walls = [w for w in walls if (w.x, w.y) not in entrance_set]
+            else:
+                active_walls = walls
+            player.move(keys, active_walls)
+
+            if door_kick_cd  > 0: door_kick_cd  -= 1
+            if inv_timer     > 0: inv_timer      -= 1
+            if player.inv_timer > 0: player.inv_timer -= 1
+
+            # Hold E to kick
+            keys_held = pygame.key.get_pressed()
+            if keys_held[pygame.K_e] and not door_open \
+                    and _near_door_twins(player.rect, door_rects) \
+                    and door_kick_cd <= 0:
+                door_kicks += 1
+                door_kick_cd = 20
+                if door_kicks >= door_kicks_needed:
+                    door_open = True
+
+            god.update(player.rect)
+
+            if god.in_smite_range(player.rect) and inv_timer <= 0:
+                state = STATE_DEAD
+
+            for bolt in god.try_spawn_bolts(player.rect):
+                lightning_bolts.append(bolt)
+
+            for bolt in lightning_bolts[:]:
+                done = bolt.update()
+                if bolt.hits(player.rect) and inv_timer <= 0:
+                    player.lives    -= 1
+                    inv_timer        = INVINCIBLE_FRAMES
+                    player.inv_timer = INVINCIBLE_FRAMES
+                    if player.lives <= 0:
+                        state = STATE_DEAD
+                if done:
+                    lightning_bolts.remove(bolt)
+
+            # Exit through top once door open
+            if door_open:
+                exit_zone = pygame.Rect(0, 0, WIDTH, 4 * T)
+                if player.rect.colliderect(exit_zone):
+                    TheNaga.god_main(god, player.lives)
+                    return
+
+        # ── Draw ──────────────────────────────────────────────────────────────
+        screen.fill(BLACK)
+
+        for layer in tmx_data.layers:
+            if not isinstance(layer, pytmx.TiledTileLayer):
+                continue
+            if layer.name in ("AbelSpawn", "Cain1Spawn",
+                              "AbelBanishmentTile", "CainBanishmentTile",
+                              "AbelBanishmentTrue", "CainBanishmentTrue",
+                              "InteractiveItemsLayer", "InteractiveTileLayer2"):
+                continue
+            # Entrance (top) — the door being kicked
+            if layer.name in ("Entracne - Open", "Entrance2 - Open") and not door_open:
+                continue
+            if layer.name in ("Entrance", "Entrance2") and door_open:
+                continue
+            # Exit (bottom) — player came from here, show as open
+            if layer.name in ("Exit", "Exit2"):
+                continue
+            for x, y, gid in layer:
+                tile = tmx_data.get_tile_image_by_gid(gid)
+                if tile:
+                    screen.blit(tile, (x * T, y * T))
+
+        # Door kick UI
+        if not door_open and door_rects:
+            door_union = door_rects[0].unionall(door_rects[1:])
+            progress   = door_kicks / max(door_kicks_needed, 1)
+            crack_col  = (int(220 * progress), int(80 * (1 - progress)), 0)
+            pygame.draw.rect(screen, crack_col, door_union.inflate(4, 4), 2, border_radius=2)
+
+            bx, by, bw = door_union.x, door_union.y - 10, door_union.width
+            pygame.draw.rect(screen, (50, 20, 20), (bx, by, bw, 5))
+            pygame.draw.rect(screen, (220, 80, 40), (bx, by, int(bw * progress), 5))
+
+            if _near_door_twins(player.rect, door_rects):
+                hint = font_sm.render(
+                    f"[E] Kick the door  ({door_kicks}/{door_kicks_needed})", True, WHITE)
+                hbg = pygame.Surface((hint.get_width() + 16, hint.get_height() + 8),
+                                      pygame.SRCALPHA)
+                hbg.fill((10, 10, 10, 180))
+                screen.blit(hbg,  (WIDTH // 2 - hbg.get_width() // 2, HEIGHT - 44))
+                screen.blit(hint, hint.get_rect(center=(WIDTH // 2, HEIGHT - 36)))
+
+        for bolt in lightning_bolts:
+            bolt.draw(screen)
+
+        god.draw(screen)
+        player.draw(screen, inv_timer)
+
+        hx, hy = 8, 8
+        for i in range(MAX_LIVES):
+            if heart_full and heart_empty:
+                img = heart_full if i < player.lives else heart_empty
+                screen.blit(img, (hx, hy))
+                hx += img.get_width() + 4
+            else:
+                col = (220, 50, 50) if i < player.lives else (80, 80, 80)
+                pygame.draw.circle(screen, col, (hx + 8, hy + 8), 7)
+                hx += 20
+
+        if state == STATE_DEAD:
+            draw_dialog(screen,
+                ["The divine presence consumes you.",
+                 "There is no escaping divine wrath."],
+                [("R", "Try again"), ("Esc", "Quit")])
+
+        pygame.display.flip()

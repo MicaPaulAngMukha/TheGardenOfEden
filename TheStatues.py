@@ -1117,9 +1117,12 @@ def god_main(god, lives=MAX_LIVES):
 
         if state == STATE_PLAY:
             keys = pygame.key.get_pressed()
-            if door_open and entrance_tiles:
-                entrance_set = {(r.x, r.y) for r in entrance_tiles}
-                active_walls = [w for w in walls if (w.x, w.y) not in entrance_set]
+            # Player exits through the TOP (toward TheGuardian)
+            if door_open:
+                exit_zone = pygame.Rect(0, 0, WIDTH, 4 * T)
+                if player.rect.colliderect(exit_zone):
+                    TheGuardian.god_main(god, player.lives)
+                    return
             else:
                 active_walls = walls
             player.move(keys, active_walls)

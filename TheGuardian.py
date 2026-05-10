@@ -107,7 +107,6 @@ DIALOGS = {
         ("Guardian", "How did you get this far into Eden?"),
         ("Guardian", "Did those two idiots at the gate not stop you?"),
         ("Guardian", "It matters not what you answer."),
-        ("Guardian", "Just stay still and i'll escort you out"),
         ("Guardian", "Don't move."),
         ("Guardian", "Take a step further and you shall be punished."),
     ],
@@ -1068,7 +1067,6 @@ def god_main(god, lives=MAX_LIVES):
     player.lives = lives
     player.rect.x = WIDTH // 2 - PLAYER_SIZE // 2
     player.rect.y = HEIGHT - 60  # spawn at bottom (exit tiles area)
-    player.lives       = MAX_LIVES
 
     lightning_bolts   = []
     inv_timer         = 0
@@ -1077,7 +1075,7 @@ def god_main(god, lives=MAX_LIVES):
     door_kicks_needed = random.randint(DOOR_KICK_MIN, DOOR_KICK_MAX)
     door_kick_cd      = 0
     door_open         = False
-    door_rects        = exit_tiles
+    door_rects = [t for t in exit_tiles if t.y > HEIGHT // 2]
 
     # Reset god to top of screen
     god.rect.center = (WIDTH // 2, -80)
@@ -1149,9 +1147,12 @@ def god_main(god, lives=MAX_LIVES):
                     lightning_bolts.remove(bolt)
 
             # Exit bottom — next level in chain (stub for Twins/Naga)
-            if door_open and player.rect.top >= HEIGHT - 2 * T:
-                # TODO: TheTwins.god_main(god)
-                return
+            if door_open:
+                exit_zone = pygame.Rect(0, 0, WIDTH, 4 * T)
+                if player.rect.colliderect(exit_zone):
+                    import TheTwins
+                    TheTwins.god_main(god, player.lives)
+                    return
 
         # ── Draw ──────────────────────────────────────────────────────────────
         screen.fill(BLACK)
