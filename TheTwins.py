@@ -66,6 +66,7 @@ DIALOGS_TWINS = {
     "first_fragment": [
         ("Narrator", "... A prayer fragment?"),
         ("Narrator", "... If humans aren't allowed here, how did THEY get in here?"),
+        ("Narrator", "... "),
         ("Narrator", "Maybe you could..."),
     ],
 }
