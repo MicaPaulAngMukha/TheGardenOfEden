@@ -245,7 +245,32 @@ class Player:
 SEG_SIZE    = 16
 SEG_SPACING = 5
 NAGA_SPEED  = 5
-HISTORY_LEN = SEG_SPACING * 3 + 10
+HISTORY_LEN = 80
+
+class NagaSprites:
+    def __init__(self, scale=0.4):  # ← was scale=1, drop to 0.25
+        base = os.path.join(BASE_DIR, "Sprites", "Naga")
+        path = os.path.join(base, "Naga_Torso.png")
+        sheet = pygame.image.load(path).convert_alpha()
+
+        FRAME_W = 144
+        FRAME_H = 215
+        dir_col = {"down": 0, "left": 1, "right": 2, "up": 3}
+
+        self.frames = {}
+        for dir, col in dir_col.items():
+            frame = sheet.subsurface((col * FRAME_W, 0, FRAME_W, FRAME_H))
+            frame = pygame.transform.scale(
+                frame, (int(FRAME_W * scale), int(FRAME_H * scale)))
+            self.frames[dir] = frame
+
+        self.current_dir = "down"
+
+    def set_direction(self, direction):
+        self.current_dir = direction
+
+    def get_frame(self):
+        return self.frames[self.current_dir]
 
 class Naga:
     N_SEGS = 3
@@ -257,6 +282,8 @@ class Naga:
             [(cx - i * SEG_SPACING, cy) for i in range(HISTORY_LEN)],
             maxlen=HISTORY_LEN
         )
+        self.sprites = NagaSprites(scale=0.4)    # ← add this line
+        self.current_dir = "down"
 
     def find_path(self, start, goal, walls, green_walls, red_walls, green_active, red_active):
         if start == goal:
@@ -331,11 +358,19 @@ class Naga:
             tx, ty = player_rect.centerx, player_rect.centery
 
         dx, dy = tx - hx, ty - hy
-        dist   = max(0.001, (dx**2 + dy**2)**0.5)
-        step   = min(NAGA_SPEED, dist)
+        dist = max(0.001, (dx ** 2 + dy ** 2) ** 0.5)
+        step = min(NAGA_SPEED, dist)
+
+        # ── Direction update ──────────────────────────────────────────────
+        if abs(dx) > abs(dy):
+            self.current_dir = "right" if dx > 0 else "left"
+        elif abs(dy) > 0.01:
+            self.current_dir = "down" if dy > 0 else "up"
+        self.sprites.set_direction(self.current_dir)
+        # ─────────────────────────────────────────────────────────────────
 
         if dist > 0.1:
-            self.history.appendleft((hx + (dx/dist)*step, hy + (dy/dist)*step))
+            self.history.appendleft((hx + (dx / dist) * step, hy + (dy / dist) * step))
         else:
             self.history.appendleft((hx, hy))
 
@@ -348,15 +383,48 @@ class Naga:
         return pygame.Rect(hx - SEG_SIZE//2, hy - SEG_SIZE//2, SEG_SIZE, SEG_SIZE)
 
     def draw(self, surface):
-        for i, (sx, sy) in reversed(list(enumerate(self.segments()))):
-            col = NAGA_HEAD if i == 0 else NAGA_BODY
-            r   = max(3, SEG_SIZE//2 - i)
-            pygame.draw.circle(surface, col, (int(sx), int(sy)), r)
-            if i == 0:
-                pygame.draw.circle(surface, NAGA_EYE, (int(sx)-3, int(sy)-2), 2)
-                pygame.draw.circle(surface, NAGA_EYE, (int(sx)+3, int(sy)-2), 2)
-                pygame.draw.circle(surface, BLACK,    (int(sx)-3, int(sy)-2), 1)
-                pygame.draw.circle(surface, BLACK,    (int(sx)+3, int(sy)-2), 1)
+        # More points = longer, more terrifying tail
+        num_points = 60  # was 25, increase for length
+        points = [(int(sx), int(sy)) for sx, sy in
+                  [self.history[min(i * 3, len(self.history) - 1)]
+                   for i in range(num_points)]]
+
+        if len(points) >= 2:
+            # Draw tapering tail — thick at torso, thin at tip
+            for i in range(len(points) - 1):
+                progress = i / len(points)  # 0 at head, 1 at tail tip
+                thickness = max(2, int(18 * (1 - progress)))  # tapers from 18 to 2
+
+                p1 = points[i]
+                p2 = points[i + 1]
+
+                # Layered colors for depth
+                pygame.draw.line(surface, (20, 70, 20), p1, p2, thickness + 3)
+                pygame.draw.line(surface, NAGA_BODY, p1, p2, thickness)
+                pygame.draw.line(surface, (70, 180, 70), p1, p2, max(1, thickness - 5))
+
+            # Pointed tip — small triangle at the very end
+            tip = points[-1]
+            prev = points[-2]
+            dx = tip[0] - prev[0]
+            dy = tip[1] - prev[1]
+            dist = max(0.001, (dx ** 2 + dy ** 2) ** 0.5)
+            nx, ny = dx / dist, dy / dist  # normalized direction
+            px, py = -ny, nx  # perpendicular
+
+            tri = [
+                (tip[0] + int(nx * 8), tip[1] + int(ny * 8)),  # point
+                (tip[0] + int(px * 3), tip[1] + int(py * 3)),  # left base
+                (tip[0] - int(px * 3), tip[1] - int(py * 3)),  # right base
+            ]
+            pygame.draw.polygon(surface, (20, 70, 20), tri)
+
+        # Torso on top
+        frame = self.sprites.get_frame()
+        hx, hy = self.history[0]
+        draw_x = int(hx) - frame.get_width() // 2
+        draw_y = int(hy) - frame.get_height() // 2
+        surface.blit(frame, (draw_x, draw_y))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DRAW

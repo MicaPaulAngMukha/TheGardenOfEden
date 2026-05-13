@@ -1048,37 +1048,29 @@ def _near_door_guardian(player_rect, door_rects, radius=50):
 
 
 def god_main(god, lives=MAX_LIVES):
-    """
-    Backtrack pass through The Guardian's maze.
-    - Guardian is disabled entirely (gone).
-    - No darkness, no bush mechanic, no key.
-    - God chases player top → bottom exit door.
-    - Door must be kicked open (random kick count).
-    - Music already playing (Hostile_March_BattleTheme.wav), no reload.
-    - On exit: calls next level in chain (Twins / Naga — add when ready).
-    """
-
     DOOR_KICK_MIN = 4
     DOOR_KICK_MAX = 8
 
     walls, wall_set, bush_tiles, exit_tiles, entrance_tiles, walls_exit = build_from_tmx()
 
-    player             = Player()
-    player.lives = lives
-    player.rect.x = WIDTH // 2 - PLAYER_SIZE // 2
-    player.rect.y = HEIGHT - 60  # spawn at bottom (exit tiles area)
+    player           = Player()
+    player.lives     = lives
+    player.rect.x    = WIDTH // 2 - PLAYER_SIZE // 2
+    player.rect.y    = HEIGHT - 8 * T   # spawn in open area near bottom
 
-    lightning_bolts   = []
-    inv_timer         = 0
+    lightning_bolts  = []
+    inv_timer        = 120
+    player.inv_timer = 120
 
     door_kicks        = 0
     door_kicks_needed = random.randint(DOOR_KICK_MIN, DOOR_KICK_MAX)
     door_kick_cd      = 0
     door_open         = False
-    door_rects = [t for t in exit_tiles if t.y > HEIGHT // 2]
+    door_rects        = [t for t in entrance_tiles if t.y < HEIGHT // 2]  # top entrance
 
-    # Reset god to top of screen
-    god.rect.center = (WIDTH // 2, -80)
+    god.rect.x     = WIDTH // 2 - god.SIZE // 2
+    god.rect.y     = -120
+    god.bolt_timer = 90
 
     STATE_RUN  = "run"
     STATE_DEAD = "dead"
@@ -1106,13 +1098,20 @@ def god_main(god, lives=MAX_LIVES):
 
                 elif state == STATE_DEAD:
                     if event.key == pygame.K_r:
-                        god_main(god); return
+                        god_main(god, lives); return
                     if event.key == pygame.K_ESCAPE:
                         pygame.quit(); sys.exit()
 
         if state == STATE_RUN:
             keys = pygame.key.get_pressed()
-            player.move(keys, walls)
+
+            # Remove entrance walls when door is open so player can pass through
+            if door_open and door_rects:
+                entrance_set = {(r.x, r.y) for r in door_rects}
+                active_walls = [w for w in walls if (w.x, w.y) not in entrance_set]
+            else:
+                active_walls = walls
+            player.move(keys, active_walls)
 
             if door_kick_cd  > 0: door_kick_cd  -= 1
             if inv_timer     > 0: inv_timer      -= 1
@@ -1146,7 +1145,7 @@ def god_main(god, lives=MAX_LIVES):
                 if done:
                     lightning_bolts.remove(bolt)
 
-            # Exit bottom — next level in chain (stub for Twins/Naga)
+            # Exit through top once entrance is kicked open
             if door_open:
                 exit_zone = pygame.Rect(0, 0, WIDTH, 4 * T)
                 if player.rect.colliderect(exit_zone):
@@ -1157,29 +1156,32 @@ def god_main(god, lives=MAX_LIVES):
         # ── Draw ──────────────────────────────────────────────────────────────
         screen.fill(BLACK)
 
-        # Draw map — no guardian, no darkness
         for layer in tmx_data.layers:
             if not isinstance(layer, pytmx.TiledTileLayer):
                 continue
-            if layer.name in ("Entrance", "Entrance2"):
-                continue   # top open (came from Statues)
-            if layer.name in ("Exit - Open", "Exit2 - Open") and not door_open:
+            # Entrance (top) — door being kicked, toggle with door_open
+            if layer.name in ("Entracne - Open", "Entrance2 - Open") and not door_open:
                 continue
-            if layer.name in ("Exit", "Exit2") and door_open:
+            if layer.name in ("Entrance", "Entrance2") and door_open:
+                continue
+            # Exit (bottom) — player entered from here, always show as open
+            if layer.name in ("Exit", "Exit2"):
                 continue
             for x, y, gid in layer:
                 tile = tmx_data.get_tile_image_by_gid(gid)
                 if tile:
                     screen.blit(tile, (x * T, y * T))
 
-        # Door kick UI
+        # Door kick UI — progress bar BELOW the top door
         if not door_open and door_rects:
             door_union = door_rects[0].unionall(door_rects[1:])
             progress   = door_kicks / max(door_kicks_needed, 1)
             crack_col  = (int(220 * progress), int(80 * (1 - progress)), 0)
             pygame.draw.rect(screen, crack_col, door_union.inflate(4, 4), 2, border_radius=2)
 
-            bx, by, bw = door_union.x, door_union.y - 10, door_union.width
+            bx = door_union.x
+            by = door_union.bottom + 4   # below the door, not above
+            bw = door_union.width
             pygame.draw.rect(screen, (50, 20, 20), (bx, by, bw, 5))
             pygame.draw.rect(screen, (220, 80, 40), (bx, by, int(bw * progress), 5))
 
