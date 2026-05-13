@@ -86,7 +86,7 @@ except Exception:
     boss_frames = []
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-PLAYER_SIZE        = 14
+PLAYER_SIZE        = 24
 MAX_LIVES          = 3
 # Player enters from the bottom centre (same spawn logic as other levels)
 PLAYER_SPAWN = (WIDTH // 2, 80)  # just below the top entrance

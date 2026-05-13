@@ -552,6 +552,28 @@ DIALOG_H    = 180
 PORTRAIT_SIZE = 140
 
 def draw_naga_dialog(surface, speaker, typewriter):
+    if speaker == "Narrator":
+        # Simple centered box, no portrait
+        box_w, box_h = 560, 80
+        box_x = WIDTH  // 2 - box_w // 2
+        box_y = HEIGHT // 2 - box_h // 2
+
+        ov = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
+        ov.fill((10, 10, 10, 210))
+        surface.blit(ov, (box_x, box_y))
+        pygame.draw.rect(surface, (160, 160, 180),
+                         (box_x, box_y, box_w, box_h), 2, border_radius=6)
+        txt = font_md.render(typewriter.current, True, WHITE)
+        surface.blit(txt, txt.get_rect(center=(WIDTH // 2, HEIGHT // 2)))
+
+        ticks = pygame.time.get_ticks()
+        if typewriter.done and (ticks // 500) % 2 == 0:
+            p = font_sm.render("▶ Enter", True, (160, 160, 160))
+            surface.blit(p, (box_x + box_w - p.get_width() - 12,
+                              box_y + box_h - p.get_height() - 8))
+        return
+
+    # Naga lines — portrait box
     is_naga = (speaker == "Naga")
     border_col = NAGA_BORDER if is_naga else GOLD
 
@@ -568,7 +590,7 @@ def draw_naga_dialog(surface, speaker, typewriter):
     pygame.draw.rect(surface, (20, 20, 20), (portrait_x, portrait_y, PORTRAIT_SIZE, PORTRAIT_SIZE))
     pygame.draw.rect(surface, border_col, (portrait_x, portrait_y, PORTRAIT_SIZE, PORTRAIT_SIZE), 3)
 
-    if is_naga and portrait_naga:
+    if portrait_naga:
         surface.blit(portrait_naga, (portrait_x, portrait_y))
 
     name_surf = font_md.render(speaker, True, border_col)
@@ -596,13 +618,13 @@ def draw_naga_dialog(surface, speaker, typewriter):
     ticks = pygame.time.get_ticks()
     if typewriter.done:
         if (ticks // 500) % 2 == 0:
-            prompt = font_sm.render("▶ Enter", True, (160, 160, 160))
-            surface.blit(prompt, (box_x + DIALOG_W - prompt.get_width() - 12,
-                                   box_y + DIALOG_H - prompt.get_height() - 8))
+            p = font_sm.render("▶ Enter", True, (160, 160, 160))
+            surface.blit(p, (box_x + DIALOG_W - p.get_width() - 12,
+                              box_y + DIALOG_H - p.get_height() - 8))
     else:
-        prompt = font_sm.render("▶ Skip", True, (100, 100, 100))
-        surface.blit(prompt, (box_x + DIALOG_W - prompt.get_width() - 12,
-                               box_y + DIALOG_H - prompt.get_height() - 8))
+        p = font_sm.render("▶ Skip", True, (100, 100, 100))
+        surface.blit(p, (box_x + DIALOG_W - p.get_width() - 12,
+                          box_y + DIALOG_H - p.get_height() - 8))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STATES / MAIN LOOP

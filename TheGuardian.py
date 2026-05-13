@@ -71,7 +71,7 @@ except Exception:
     portrait_guardian = None
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-PLAYER_SIZE       = 14
+PLAYER_SIZE       = 24
 MAX_LIVES         = 3
 PLAYER_SPAWN = (WIDTH // 2, 40)
 

@@ -18,6 +18,54 @@ clock  = pygame.time.Clock()
 
 tmx_data = pytmx.load_pygame(os.path.join(BASE_DIR, "TheTwinsMap.tmx"))
 
+PORTRAIT_SIZE = 140
+DIALOG_W      = 700
+DIALOG_H      = 180
+
+CAIN_BORDER = (180, 140, 60)
+ABEL_BORDER = (100, 160, 220)
+
+try:
+    portrait_cain = pygame.transform.scale(
+        pygame.image.load(os.path.join(BASE_DIR, "Sprites", "Cain", "Cain.png")).convert_alpha(),
+        (PORTRAIT_SIZE, PORTRAIT_SIZE))
+except:
+    portrait_cain = None
+
+try:
+    portrait_abel = pygame.transform.scale(
+        pygame.image.load(os.path.join(BASE_DIR, "Sprites", "Abel", "Abel.png")).convert_alpha(),
+        (PORTRAIT_SIZE, PORTRAIT_SIZE))
+except:
+    portrait_abel = None
+
+TYPEWRITER_SPEED = 2
+
+DIALOGS_TWINS = {
+    "intro": [
+        ("Narrator", "You barely scrape by the Naga."),
+        ("Narrator", "Was that...?"),
+        ("Abel",     "!!!"),
+        ("Cain",     "What is it, Abel?"),
+        ("Abel",     "Hu... Human."),
+        ("Cain",     "Human...?"),
+        ("Cain",     "No. That's impossible."),
+        ("Cain",     "Humans aren't allowed in the Garden..."),
+        ("Cain",     "Unless..."),
+        ("Abel",     "You're an angel, aren't you?"),
+        ("Abel",     "An angel in disguise?"),
+        ("Narrator", "!!!"),
+        ("Cain",     "No, no. YOU don't get to throw us out of here."),
+        ("Cain",     "This land is rightfully ours. It was our parents'. It was OURS."),
+        ("Abel",     "We're not leaving here without a fight."),
+    ],
+    "first_fragment": [
+        ("Narrator", "... A prayer fragment?"),
+        ("Narrator", "... If humans aren't allowed here, how did THEY get in here?"),
+        ("Narrator", "Maybe you could..."),
+    ],
+}
+
 # ── Colors ────────────────────────────────────────────────────────────────────
 BLACK       = (0,   0,   0)
 WHITE       = (255, 255, 255)
@@ -56,7 +104,7 @@ except:
     heart_full = heart_empty = None
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-PLAYER_SIZE    = 14
+PLAYER_SIZE    = 24
 MAX_LIVES      = 3
 PLAYER_SPAWN = (29 * T + T // 2, 3 * T)
 
@@ -750,6 +798,113 @@ STATE_BOTH_BANISHED= "both_banished"
 
 INVINCIBLE_FRAMES = 90
 
+class Typewriter:
+    def __init__(self):
+        self.full_text     = ""
+        self.visible_chars = 0
+        self.timer         = 0
+        self.done          = False
+
+    def set_text(self, text):
+        self.full_text     = text
+        self.visible_chars = 0
+        self.timer         = 0
+        self.done          = False
+
+    def update(self):
+        if self.done:
+            return
+        self.timer += 1
+        if self.timer >= TYPEWRITER_SPEED:
+            self.timer = 0
+            self.visible_chars += 1
+            if self.visible_chars >= len(self.full_text):
+                self.visible_chars = len(self.full_text)
+                self.done = True
+
+    def skip(self):
+        self.visible_chars = len(self.full_text)
+        self.done = True
+
+    @property
+    def current(self):
+        return self.full_text[:self.visible_chars]
+
+
+def draw_twins_dialog(surface, speaker, typewriter):
+    if speaker == "Narrator":
+        box_w, box_h = 560, 80
+        box_x = WIDTH  // 2 - box_w // 2
+        box_y = HEIGHT // 2 - box_h // 2
+        ov = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
+        ov.fill((10, 10, 10, 210))
+        surface.blit(ov, (box_x, box_y))
+        pygame.draw.rect(surface, (160, 160, 180),
+                         (box_x, box_y, box_w, box_h), 2, border_radius=6)
+        txt = font_md.render(typewriter.current, True, WHITE)
+        surface.blit(txt, txt.get_rect(center=(WIDTH // 2, HEIGHT // 2)))
+        ticks = pygame.time.get_ticks()
+        if typewriter.done and (ticks // 500) % 2 == 0:
+            p = font_sm.render("▶ Enter", True, (160, 160, 160))
+            surface.blit(p, (box_x + box_w - p.get_width() - 12,
+                              box_y + box_h - p.get_height() - 8))
+        return
+
+    is_cain    = (speaker == "Cain")
+    border_col = CAIN_BORDER if is_cain else ABEL_BORDER
+    portrait   = portrait_cain if is_cain else portrait_abel
+
+    box_x = WIDTH  // 2 - DIALOG_W // 2
+    box_y = HEIGHT - DIALOG_H - 10
+
+    ov = pygame.Surface((DIALOG_W, DIALOG_H), pygame.SRCALPHA)
+    ov.fill((10, 10, 10, 230))
+    surface.blit(ov, (box_x, box_y))
+    pygame.draw.rect(surface, border_col,
+                     (box_x, box_y, DIALOG_W, DIALOG_H), 3, border_radius=8)
+
+    portrait_x = box_x + 10
+    portrait_y = box_y + DIALOG_H // 2 - PORTRAIT_SIZE // 2
+    pygame.draw.rect(surface, (20, 20, 20),
+                     (portrait_x, portrait_y, PORTRAIT_SIZE, PORTRAIT_SIZE))
+    pygame.draw.rect(surface, border_col,
+                     (portrait_x, portrait_y, PORTRAIT_SIZE, PORTRAIT_SIZE), 3)
+    if portrait:
+        surface.blit(portrait, (portrait_x, portrait_y))
+
+    surface.blit(font_md.render(speaker, True, border_col),
+                 (portrait_x, portrait_y - 22))
+
+    text_x = portrait_x + PORTRAIT_SIZE + 18
+    max_w  = DIALOG_W - PORTRAIT_SIZE - 30
+    words  = typewriter.current.split(" ")
+    lines, line = [], ""
+    for word in words:
+        test = line + (" " if line else "") + word
+        if font_md.size(test)[0] <= max_w:
+            line = test
+        else:
+            lines.append(line)
+            line = word
+    if line:
+        lines.append(line)
+
+    y_off = box_y + DIALOG_H // 2 - (len(lines) * 26) // 2
+    for ln in lines:
+        surface.blit(font_md.render(ln, True, WHITE), (text_x, y_off))
+        y_off += 26
+
+    ticks = pygame.time.get_ticks()
+    if typewriter.done:
+        if (ticks // 500) % 2 == 0:
+            p = font_sm.render("▶ Enter", True, (160, 160, 160))
+            surface.blit(p, (box_x + DIALOG_W - p.get_width() - 12,
+                              box_y + DIALOG_H - p.get_height() - 8))
+    else:
+        p = font_sm.render("▶ Skip", True, (100, 100, 100))
+        surface.blit(p, (box_x + DIALOG_W - p.get_width() - 12,
+                          box_y + DIALOG_H - p.get_height() - 8))
+
 # ─────────────────────────────────────────────────────────────────────────────
 # MAIN
 # ─────────────────────────────────────────────────────────────────────────────
@@ -759,7 +914,7 @@ def main():
 
     fragments = spawn_fragments(interactive_tiles, wall_set, 6)
 
-    pygame.mixer.music.load(os.path.join(BASE_DIR, "audio", "Moonlight_DungeonTheme.wav"))
+    pygame.mixer.music.load(os.path.join(BASE_DIR, "audio", "25. Tales by Firelight.mp3"))
     pygame.mixer.music.set_volume(0.5)
     pygame.mixer.music.play(-1)
 
@@ -776,6 +931,14 @@ def main():
     state           = STATE_PLAY
     inv_timer       = 0
     entrance_closed = False
+
+    typewriter = Typewriter()
+    twins_dialog = []
+    dialog_index = 0
+    intro_triggered = False
+    frag_dialog_done = False
+
+    STATE_TWINS_DIALOG = "twins_dialog"
 
     while True:
         clock.tick(60)
@@ -801,6 +964,17 @@ def main():
                         elif cain_frags >= FRAGMENTS_NEEDED and not cain_banished \
                                 and player.near_tile(cain_ban_tile):
                             state = STATE_BANISH_CAIN
+
+                elif state == STATE_TWINS_DIALOG:
+                    if event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                        if not typewriter.done:
+                            typewriter.skip()
+                        else:
+                            dialog_index += 1
+                            if dialog_index < len(twins_dialog):
+                                typewriter.set_text(twins_dialog[dialog_index][1])
+                            else:
+                                state = STATE_PLAY
 
                 elif state == STATE_ABEL_CAUGHT:
                     if event.key in (pygame.K_RETURN, pygame.K_SPACE):
@@ -886,18 +1060,30 @@ def main():
             # Close entrance
             if not entrance_closed and player.rect.centery > 4 * T:
                 entrance_closed = True
+                if not intro_triggered:
+                    intro_triggered = True
+                    twins_dialog = DIALOGS_TWINS["intro"]
+                    dialog_index = 0
+                    typewriter.set_text(twins_dialog[0][1])
+                    state = STATE_TWINS_DIALOG
 
             # Fragment pickup
             for frag in fragments:
                 if not frag["collected"] and player.rect.colliderect(frag["rect"]):
                     frag["collected"] = True
-                    # Alternate between abel and cain frags
                     if abel_frags <= cain_frags and not abel_banished:
                         abel_frags += 1
                     elif not cain_banished:
                         cain_frags += 1
                     else:
                         abel_frags += 1
+                    # First fragment dialog
+                    if not frag_dialog_done:
+                        frag_dialog_done = True
+                        twins_dialog = DIALOGS_TWINS["first_fragment"]
+                        dialog_index = 0
+                        typewriter.set_text(twins_dialog[0][1])
+                        state = STATE_TWINS_DIALOG
 
             # Invincibility countdown
             if inv_timer > 0:
@@ -1039,6 +1225,11 @@ def main():
 
         elif state == STATE_WIN:
             TheGuardian.main()
+
+        if state == STATE_TWINS_DIALOG and dialog_index < len(twins_dialog):
+            speaker, _ = twins_dialog[dialog_index]
+            typewriter.update()
+            draw_twins_dialog(screen, speaker, typewriter)
 
         pygame.display.flip()
 

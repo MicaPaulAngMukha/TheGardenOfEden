@@ -4,7 +4,6 @@ import random
 import TheNaga
 import pytmx
 import os
-import math
 
 # --- Init ---
 pygame.init()
