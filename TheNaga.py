@@ -7,6 +7,7 @@ import random
 import pytmx
 import os
 import TheTwins
+import math
 
 pygame.init()
 WIDTH, HEIGHT = 793, 650
@@ -21,6 +22,35 @@ tmx_data = pytmx.load_pygame("TheNagaMap.tmx")
 
 heart_full = pygame.image.load("LifeHeart.png").convert_alpha()
 heart_empty = pygame.image.load("LifeHeartLoss.png").convert_alpha()
+
+try:
+    portrait_naga = pygame.transform.scale(
+        pygame.image.load(os.path.join(BASE_DIR, "Sprites", "Naga", "Naga.png")).convert_alpha(),
+        (140, 140))
+except:
+    portrait_naga = None
+
+DIALOGS = {
+    "naga_intro": [
+        ("Narrator", "You come face to face with..."),
+        ("Naga", "...?"),
+        ("Naga", "A human..."),
+        ("Naga", "You don't look like the ones who lived here before."),
+        ("Naga", "You look... different."),
+        ("Naga", "How did you get into the garden?"),
+        ("Narrator", "The Naga chuckles."),
+        ("Naga", "You're here for the fruit, aren't you? The fruit of knowledge?"),
+        ("Naga", "Hm... You don't really look as tough as your ancestors."),
+        ("Naga", "You look small... Weak."),
+        ("Naga", "...Like your mother."),
+        ("Naga", "Bet you're a good kid. Following orders, following your parents..."),
+        ("Naga", "Unlike your parents."),
+        ("Naga", "So why don't you... scurry off. Come on."),
+        ("Naga", "I'll even help you."),
+        ("Naga", "Don't worry. I don't bite."),
+        ("Narrator", "!!!"),
+    ],
+}
 
 # ── Colors ───────────────────────────────────────────────────────────────────
 BLACK       = (0,   0,   0)
@@ -278,10 +308,13 @@ class Naga:
     def __init__(self, spawn_tile):
         cx = spawn_tile[0] * T + T // 2
         cy = spawn_tile[1] * T + T // 2
-        self.history = collections.deque(
-            [(cx - i * SEG_SPACING, cy) for i in range(HISTORY_LEN)],
-            maxlen=HISTORY_LEN
-        )
+        self.history = collections.deque(maxlen=HISTORY_LEN)
+        for i in range(HISTORY_LEN):
+            angle = i * 0.3  # spiral angle
+            radius = max(4, 20 - i * 0.15)  # tightens toward center
+            px = cx + math.cos(angle) * radius
+            py = cy + math.sin(angle) * radius
+            self.history.append((px, py))
         self.sprites = NagaSprites(scale=0.4)    # ← add this line
         self.current_dir = "down"
 
@@ -513,6 +546,64 @@ def draw_dialog(surface, lines, options=None):
             surface.blit(font_md.render(f"[{key}]  {label}", True, GOLD), (box_x + 30, y))
             y += 30
 
+NAGA_BORDER = (60, 160, 60)  # green to match him
+DIALOG_W    = 700
+DIALOG_H    = 180
+PORTRAIT_SIZE = 140
+
+def draw_naga_dialog(surface, speaker, typewriter):
+    is_naga = (speaker == "Naga")
+    border_col = NAGA_BORDER if is_naga else GOLD
+
+    box_x = WIDTH  // 2 - DIALOG_W // 2
+    box_y = HEIGHT - DIALOG_H - 10
+
+    ov = pygame.Surface((DIALOG_W, DIALOG_H), pygame.SRCALPHA)
+    ov.fill((10, 10, 10, 230))
+    surface.blit(ov, (box_x, box_y))
+    pygame.draw.rect(surface, border_col, (box_x, box_y, DIALOG_W, DIALOG_H), 3, border_radius=8)
+
+    portrait_x = box_x + 10
+    portrait_y = box_y + DIALOG_H // 2 - PORTRAIT_SIZE // 2
+    pygame.draw.rect(surface, (20, 20, 20), (portrait_x, portrait_y, PORTRAIT_SIZE, PORTRAIT_SIZE))
+    pygame.draw.rect(surface, border_col, (portrait_x, portrait_y, PORTRAIT_SIZE, PORTRAIT_SIZE), 3)
+
+    if is_naga and portrait_naga:
+        surface.blit(portrait_naga, (portrait_x, portrait_y))
+
+    name_surf = font_md.render(speaker, True, border_col)
+    surface.blit(name_surf, (portrait_x, portrait_y - 22))
+
+    text_x = portrait_x + PORTRAIT_SIZE + 18
+    max_w  = DIALOG_W - PORTRAIT_SIZE - 30
+    words  = typewriter.current.split(" ")
+    lines, line = [], ""
+    for word in words:
+        test = line + (" " if line else "") + word
+        if font_md.size(test)[0] <= max_w:
+            line = test
+        else:
+            lines.append(line)
+            line = word
+    if line:
+        lines.append(line)
+
+    y_off = box_y + DIALOG_H // 2 - (len(lines) * 26) // 2
+    for ln in lines:
+        surface.blit(font_md.render(ln, True, WHITE), (text_x, y_off))
+        y_off += 26
+
+    ticks = pygame.time.get_ticks()
+    if typewriter.done:
+        if (ticks // 500) % 2 == 0:
+            prompt = font_sm.render("▶ Enter", True, (160, 160, 160))
+            surface.blit(prompt, (box_x + DIALOG_W - prompt.get_width() - 12,
+                                   box_y + DIALOG_H - prompt.get_height() - 8))
+    else:
+        prompt = font_sm.render("▶ Skip", True, (100, 100, 100))
+        surface.blit(prompt, (box_x + DIALOG_W - prompt.get_width() - 12,
+                               box_y + DIALOG_H - prompt.get_height() - 8))
+
 # ─────────────────────────────────────────────────────────────────────────────
 # STATES / MAIN LOOP
 # ─────────────────────────────────────────────────────────────────────────────
@@ -522,8 +613,44 @@ STATE_GAME_OVER = "gameover"
 STATE_WIN       = "win"
 STATE_LEVER_G   = "lever_g"
 STATE_LEVER_R   = "lever_r"
+STATE_INTRO_DIALOG = "intro_dialog"
+STATE_INTRO_WAIT   = "intro_wait"  # player frozen before dialog triggers
 
 INVINCIBLE_FRAMES = 90
+
+TYPEWRITER_SPEED = 2
+
+class Typewriter:
+    def __init__(self):
+        self.full_text     = ""
+        self.visible_chars = 1
+        self.timer         = 0
+        self.done          = False
+
+    def set_text(self, text):
+        self.full_text     = text
+        self.visible_chars = 0
+        self.timer         = 0
+        self.done          = False
+
+    def update(self):
+        if self.done:
+            return
+        self.timer += 1
+        if self.timer >= TYPEWRITER_SPEED:
+            self.timer = 0
+            self.visible_chars += 1
+            if self.visible_chars >= len(self.full_text):
+                self.visible_chars = len(self.full_text)
+                self.done = True
+
+    def skip(self):
+        self.visible_chars = len(self.full_text)
+        self.done = True
+
+    @property
+    def current(self):
+        return self.full_text[:self.visible_chars]
 
 def main():
     walls, green_walls, red_walls, GREEN_LEVER_POS, RED_LEVER_POS, naga_tile, empty_tiles = build_from_tmx()
@@ -553,6 +680,12 @@ def main():
     items_on_map      = []
     item_spawn_timer  = 180
     naga_freeze_timer = 0
+
+    typewriter = Typewriter()
+    naga_dialog = []
+    dialog_index = 0
+    intro_done = False
+    intro_triggered = False
 
     while True:
         clock.tick(60)
@@ -589,6 +722,19 @@ def main():
                             inv_timer = INVINCIBLE_FRAMES
                         state = STATE_PLAY
 
+                elif state == STATE_INTRO_DIALOG:
+                    if event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                        if not typewriter.done:
+                            typewriter.skip()
+                        else:
+                            dialog_index += 1
+                            if dialog_index < len(naga_dialog):
+                                typewriter.set_text(naga_dialog[dialog_index][1])
+                            else:
+                                # Chase begins
+                                intro_done = True
+                                state = STATE_PLAY
+
                 elif state == STATE_GAME_OVER:
                     if event.key == pygame.K_r:
                         main(); return
@@ -606,10 +752,16 @@ def main():
             # Close entrance once player walks past row 4
             if not entrance_closed and player.rect.centery > 4 * T:
                 entrance_closed = True
+                if not intro_triggered:
+                    intro_triggered = True
+                    naga_dialog = DIALOGS["naga_intro"]
+                    dialog_index = 0
+                    typewriter.set_text(naga_dialog[0][1])
+                    state = STATE_INTRO_DIALOG
 
             if naga_freeze_timer > 0:
                 naga_freeze_timer -= 1
-            else:
+            elif intro_done:
                 naga.update(player.rect, walls, green_walls, red_walls, green_active, red_active)
 
             if inv_timer <= 0:
@@ -678,6 +830,11 @@ def main():
             pygame.mixer.music.fadeout(500)
             TheTwins.main()
             pygame.quit()
+
+        if state == STATE_INTRO_DIALOG and dialog_index < len(naga_dialog):
+            speaker, _ = naga_dialog[dialog_index]
+            typewriter.update()
+            draw_naga_dialog(screen, speaker, typewriter)
 
         pygame.display.flip()
 
