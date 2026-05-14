@@ -61,11 +61,12 @@ DIALOGS_TWINS = {
         ("Cain",     "This land is rightfully ours. "),
         ("Cain",     "It was our parents'. It was OURS."),
         ("Abel",     "We're not leaving here and if you're going to force us.. "),
-        ("Abel",     "We aren't as passive as our parents. "),
+        ("Abel",     "We aren't going to give up what's rightfully ours without a fight. "),
     ],
     "first_fragment": [
         ("Narrator", "... A prayer fragment?"),
-        ("Narrator", "... If humans aren't allowed here, how did THEY get in here?"),
+        ("Narrator", "... If humans aren't allowed here..."),
+        ("Narrator", "... how did THEY get in here?... "),
         ("Narrator", "... "),
         ("Narrator", "Maybe you could..."),
     ],
@@ -118,9 +119,11 @@ CAIN_SPEED_ENRAGED  = 3.5
 ABEL_SPEED_NORMAL   = 3.6
 ABEL_SPEED_ENRAGED  = 5.5
 
+# AFTER
 CAIN_THROW_RANGE_NORMAL  = 8   # tiles
-CAIN_THROW_RANGE_ENRAGED = 16   # tiles
-CAIN_THROW_COOLDOWN      = 180  # frames (~3s)
+CAIN_THROW_RANGE_ENRAGED = 32  # tiles  ← doubled
+CAIN_THROW_COOLDOWN      = 180  # frames (~3s, normal)
+CAIN_THROW_COOLDOWN_ENRAGED = 60  # frames (~1s, enraged)
 
 ABEL_STUN_FRAMES     = 90
 ABEL_PUSH_DISTANCE   = 2 * T   # pixels
@@ -312,6 +315,7 @@ class Player:
     def __init__(self):
         self.lives       = MAX_LIVES
         self.stun_timer  = 0
+        self.inv_timer = 0
         self.push_vx     = 0
         self.push_vy     = 0
         self.abel_caught = False
@@ -391,8 +395,8 @@ class Player:
     def trigger_hurt(self):
         self.sprites.show_hurt()
 
-    def draw(self, surface, inv_timer):
-        if inv_timer > 0 and (inv_timer // 5) % 2 == 0:
+    def draw(self, surface):
+        if self.inv_timer > 0 and (self.inv_timer // 5) % 2 == 0:
             return  # flash during invincibility
         self.sprites.update()
         frame  = self.sprites.get_frame()
@@ -429,8 +433,27 @@ class Spear:
         return False
 
     def draw(self, surface):
-        pygame.draw.rect(surface, SPEAR_COL, self.rect, border_radius=2)
-        pygame.draw.rect(surface, (220, 180, 80), self.rect, 1, border_radius=2)
+        # Draw as a proper spear shaft + tip based on travel angle
+        angle_rad = math.radians(self.angle)
+        shaft_len = 18
+        tip_len   = 6
+
+        # Shaft
+        sx = self.rect.centerx + math.cos(angle_rad) * shaft_len * 0.5
+        sy = self.rect.centery - math.sin(angle_rad) * shaft_len * 0.5
+        ex = self.rect.centerx - math.cos(angle_rad) * shaft_len * 0.5
+        ey = self.rect.centery + math.sin(angle_rad) * shaft_len * 0.5
+        pygame.draw.line(surface, (160, 110, 50), (int(sx), int(sy)), (int(ex), int(ey)), 3)
+
+        # Tip (brighter, pointed end in direction of travel)
+        tx = self.rect.centerx + math.cos(angle_rad) * (shaft_len * 0.5 + tip_len)
+        ty = self.rect.centery - math.sin(angle_rad) * (shaft_len * 0.5 + tip_len)
+        pygame.draw.line(surface, (220, 200, 80),
+                         (self.rect.centerx, self.rect.centery),
+                         (int(tx), int(ty)), 2)
+
+        # Small trailing glow dot
+        pygame.draw.circle(surface, (255, 230, 120), self.rect.center, 2)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TWIN BASE
@@ -624,11 +647,12 @@ class Cain(Twin):
             else:
                 self.sprites.set_anim("thrust", "down" if dy > 0 else "up")
 
+        # AFTER
         self.throw_cooldown -= 1
         if self.throw_cooldown > 0:
             return None
         if dist_tiles <= self.throw_range:
-            self.throw_cooldown = CAIN_THROW_COOLDOWN
+            self.throw_cooldown = CAIN_THROW_COOLDOWN_ENRAGED if self.enraged else CAIN_THROW_COOLDOWN
             return Spear(self.rect.centerx, self.rect.centery,
                          player_rect.centerx, player_rect.centery)
         return None
@@ -701,9 +725,6 @@ def draw_scene(surface, walls,
             continue
         if layer.name == "CainBanishmentTrue" and not cain_banished:
             continue
-        # Skip NagaSpawn-style marker layers
-        if layer.name in ("AbelSpawn", "Cain1Spawn"):
-            continue
 
         for x, y, gid in layer:
             tile = tmx_data.get_tile_image_by_gid(gid)
@@ -738,7 +759,7 @@ def draw_scene(surface, walls,
     abel.draw(surface)
 
     # ── Player ──
-    player.draw(surface, inv_timer)
+    player.draw(surface)
 
     # ── HUD ──
     heart_x = 8
@@ -1113,6 +1134,8 @@ def main():
 
                 # Spear throw
                 new_spear = cain.try_throw(player.rect, walls)
+                if new_spear:
+                    spears.append(new_spear)
 
             # Spear update
             for spear in spears[:]:
@@ -1238,10 +1261,6 @@ def main():
 
         pygame.display.flip()
 
-
-if __name__ == "__main__":
-    main()
-
 # =============================================================================
 # LIGHTNING  —  duplicated to avoid circular import
 # =============================================================================
@@ -1308,34 +1327,26 @@ def _near_door_twins(player_rect, door_rects, radius=50):
 
 
 def god_main(god, lives=MAX_LIVES):
-    """
-    Backtrack pass through The Twins arena.
-    - Both twins gone entirely.
-    - Player spawns at bottom (coming from Guardian), kicks top entrance to exit toward Naga.
-    - Music already playing, no reload.
-    """
-    import TheNaga   # next in backtrack chain
-
     DOOR_KICK_MIN = 4
     DOOR_KICK_MAX = 8
 
     walls, wall_set, abel_ban_tile, cain_ban_tile, \
         abel_spawn, cain_spawn, interactive_tiles, exit_tiles, entrance_tiles = build_from_tmx()
 
-    player       = Player()
-    player.rect.x = WIDTH // 2 - PLAYER_SIZE // 2
-    player.rect.y = HEIGHT - 60   # spawn at bottom, coming from Guardian
-    player.lives  = lives
+    player           = Player()
+    player.lives     = lives
+    player.rect.x    = WIDTH // 2 - PLAYER_SIZE // 2
+    player.rect.y    = HEIGHT - 8 * T   # spawn in open area near bottom
 
-    lightning_bolts   = []
-    inv_timer         = 120
-    player.inv_timer  = 120
+    lightning_bolts  = []
+    inv_timer        = 120
+    player.inv_timer = 120
 
     door_kicks        = 0
     door_kicks_needed = random.randint(DOOR_KICK_MIN, DOOR_KICK_MAX)
     door_kick_cd      = 0
     door_open         = False
-    door_rects        = entrance_tiles   # top entrance is the door to kick
+    door_rects        = [t for t in entrance_tiles if t.y < HEIGHT // 2]  # top entrance
 
     god.rect.x     = WIDTH // 2 - god.SIZE // 2
     god.rect.y     = -120
@@ -1375,8 +1386,8 @@ def god_main(god, lives=MAX_LIVES):
             keys = pygame.key.get_pressed()
 
             # Remove entrance walls when door is open so player can pass through
-            if door_open and entrance_tiles:
-                entrance_set = {(r.x, r.y) for r in entrance_tiles}
+            if door_open and door_rects:
+                entrance_set = {(r.x, r.y) for r in door_rects}
                 active_walls = [w for w in walls if (w.x, w.y) not in entrance_set]
             else:
                 active_walls = walls
@@ -1386,7 +1397,6 @@ def god_main(god, lives=MAX_LIVES):
             if inv_timer     > 0: inv_timer      -= 1
             if player.inv_timer > 0: player.inv_timer -= 1
 
-            # Hold E to kick
             keys_held = pygame.key.get_pressed()
             if keys_held[pygame.K_e] and not door_open \
                     and _near_door_twins(player.rect, door_rects) \
@@ -1415,11 +1425,12 @@ def god_main(god, lives=MAX_LIVES):
                 if done:
                     lightning_bolts.remove(bolt)
 
-            # Exit through top once door open
+            # Exit through top once entrance is kicked open
             if door_open:
                 exit_zone = pygame.Rect(0, 0, WIDTH, 4 * T)
                 if player.rect.colliderect(exit_zone):
-                    TheNaga.god_main(god, player.lives)
+                    import TheTwins
+                    TheTwins.god_main(god, player.lives)
                     return
 
         # ── Draw ──────────────────────────────────────────────────────────────
@@ -1428,17 +1439,13 @@ def god_main(god, lives=MAX_LIVES):
         for layer in tmx_data.layers:
             if not isinstance(layer, pytmx.TiledTileLayer):
                 continue
-            if layer.name in ("AbelSpawn", "Cain1Spawn",
-                              "AbelBanishmentTile", "CainBanishmentTile",
-                              "AbelBanishmentTrue", "CainBanishmentTrue",
-                              "InteractiveItemsLayer", "InteractiveTileLayer2"):
-                continue
-            # Entrance (top) — the door being kicked
+
+            # Entrance (top) — door being kicked, toggle with door_open
             if layer.name in ("Entracne - Open", "Entrance2 - Open") and not door_open:
                 continue
             if layer.name in ("Entrance", "Entrance2") and door_open:
                 continue
-            # Exit (bottom) — player came from here, show as open
+            # Exit (bottom) — player entered from here, always show as open
             if layer.name in ("Exit", "Exit2"):
                 continue
             for x, y, gid in layer:
@@ -1446,14 +1453,16 @@ def god_main(god, lives=MAX_LIVES):
                 if tile:
                     screen.blit(tile, (x * T, y * T))
 
-        # Door kick UI
+        # Door kick UI — progress bar BELOW the top door
         if not door_open and door_rects:
             door_union = door_rects[0].unionall(door_rects[1:])
             progress   = door_kicks / max(door_kicks_needed, 1)
             crack_col  = (int(220 * progress), int(80 * (1 - progress)), 0)
             pygame.draw.rect(screen, crack_col, door_union.inflate(4, 4), 2, border_radius=2)
 
-            bx, by, bw = door_union.x, door_union.y - 10, door_union.width
+            bx = door_union.x
+            by = door_union.bottom + 4   # below the door, not above
+            bw = door_union.width
             pygame.draw.rect(screen, (50, 20, 20), (bx, by, bw, 5))
             pygame.draw.rect(screen, (220, 80, 40), (bx, by, int(bw * progress), 5))
 
@@ -1470,7 +1479,7 @@ def god_main(god, lives=MAX_LIVES):
             bolt.draw(screen)
 
         god.draw(screen)
-        player.draw(screen, inv_timer)
+        player.draw(screen)
 
         hx, hy = 8, 8
         for i in range(MAX_LIVES):
@@ -1490,3 +1499,7 @@ def god_main(god, lives=MAX_LIVES):
                 [("R", "Try again"), ("Esc", "Quit")])
 
         pygame.display.flip()
+
+
+if __name__ == "__main__":
+    main()
