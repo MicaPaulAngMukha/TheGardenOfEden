@@ -860,6 +860,260 @@ def main():
 
         pygame.display.flip()
 
+# =============================================================================
+# LIGHTNING  —  duplicated to avoid circular import
+# =============================================================================
+class Lightning:
+    WARN_FRAMES   = 45
+    LINGER_FRAMES = 28
+
+    def __init__(self, tx, ty):
+        self.x          = tx
+        self.y          = ty
+        self.warn_timer = self.WARN_FRAMES
+        self.live_timer = self.LINGER_FRAMES
+
+    def update(self):
+        if self.warn_timer > 0:
+            self.warn_timer -= 1
+            return False
+        if self.live_timer > 0:
+            self.live_timer -= 1
+            return False
+        return True
+
+    @property
+    def is_live(self):
+        return self.warn_timer <= 0 and self.live_timer > 0
+
+    def hits(self, rect):
+        if not self.is_live:
+            return False
+        return pygame.Rect(self.x - 14, self.y - 14, 28, 28).colliderect(rect)
+
+    def draw(self, surface):
+        if self.warn_timer > 0:
+            alpha = int(200 * (1 - self.warn_timer / self.WARN_FRAMES))
+            ws = pygame.Surface((52, 52), pygame.SRCALPHA)
+            pygame.draw.circle(ws, (255, 60, 60, alpha), (26, 26), 24, 3)
+            surface.blit(ws, (self.x - 26, self.y - 26))
+            return
+        if self.live_timer <= 0:
+            return
+        bright = int(255 * (self.live_timer / self.LINGER_FRAMES))
+        pts = [(self.x, 0)]
+        cy  = 0
+        while cy < self.y:
+            cy += random.randint(18, 34)
+            pts.append((self.x + random.randint(-14, 14), min(cy, self.y)))
+        pts.append((self.x, self.y))
+        if len(pts) >= 2:
+            pygame.draw.lines(surface, (bright, bright, 60), False, pts, 3)
+            pygame.draw.lines(surface, (255, 255, 200),       False, pts, 1)
+        glow = pygame.Surface((60, 60), pygame.SRCALPHA)
+        pygame.draw.ellipse(glow, (255, 240, 80, bright // 2), glow.get_rect())
+        surface.blit(glow, (self.x - 30, self.y - 20))
+
+
+# =============================================================================
+# GOD_MAIN  —  backtrack mode (naga gone, god chasing player to top entrance)
+# =============================================================================
+def _near_door_naga(player_rect, door_rects, radius=50):
+    if not door_rects:
+        return False
+    door_union = door_rects[0].unionall(door_rects[1:])
+    return door_union.inflate(radius * 2, radius * 2).colliderect(player_rect)
+
+
+def god_main(god, lives=MAX_LIVES):
+    """
+    Backtrack pass through The Naga's Lair.
+    - No naga, no levers, no items.
+    - Player spawns at bottom (from Twins), kicks top entrance to exit.
+    - On exit: calls Start.god_epilogue() — Mikhail/Raziel epilogue.
+    """
+    walls, green_walls, red_walls, green_lever, red_lever, naga_spawn, empty_tiles = build_from_tmx()
+
+    # Collect entrance/exit tiles inline
+    entrance_tiles = []
+    for layer in tmx_data.layers:
+        if not isinstance(layer, pytmx.TiledTileLayer):
+            continue
+        for x, y, gid in layer:
+            if gid == 0:
+                continue
+            r = pygame.Rect(x * T, y * T, T, T)
+            if layer.name in ("Entrance", "Entrance2"):
+                entrance_tiles.append(r)
+
+    # All walls active — no levers in backtrack
+    all_walls = walls
+
+    player           = Player()
+    player.lives     = lives
+    player.rect.x    = WIDTH // 2 - PLAYER_SIZE // 2
+    player.rect.y    = HEIGHT - 8 * T
+    player.sprites.set_anim("idle", "down")
+
+    lightning_bolts  = []
+    inv_timer        = 120
+
+    DOOR_KICK_MIN     = 4
+    DOOR_KICK_MAX     = 8
+    door_kicks        = 0
+    door_kicks_needed = random.randint(DOOR_KICK_MIN, DOOR_KICK_MAX)
+    door_kick_cd      = 0
+    door_open         = False
+    door_rects        = [t for t in entrance_tiles if t.y < HEIGHT // 2]
+
+    god.rect.x     = WIDTH // 2 - god.SIZE // 2
+    god.rect.y     = -120
+    god.bolt_timer = 90
+
+    STATE_RUN  = "run"
+    STATE_DEAD = "dead"
+    state      = STATE_RUN
+
+    while True:
+        clock.tick(60)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    pygame.quit(); sys.exit()
+
+                if state == STATE_RUN:
+                    if event.key == pygame.K_e:
+                        if not door_open \
+                                and _near_door_naga(player.rect, door_rects) \
+                                and door_kick_cd <= 0:
+                            door_kicks += 1
+                            door_kick_cd = 20
+                            if door_kicks >= door_kicks_needed:
+                                door_open = True
+
+                elif state == STATE_DEAD:
+                    if event.key == pygame.K_r:
+                        god_main(god, lives); return
+                    if event.key == pygame.K_ESCAPE:
+                        pygame.quit(); sys.exit()
+
+        if state == STATE_RUN:
+            keys = pygame.key.get_pressed()
+
+            # Remove entrance walls when door is open
+            if door_open and door_rects:
+                entrance_set = {(r.x, r.y) for r in door_rects}
+                active_walls = [w for w in all_walls if (w.x, w.y) not in entrance_set]
+            else:
+                active_walls = all_walls
+            player.move(keys, active_walls)
+
+            if door_kick_cd > 0: door_kick_cd -= 1
+            if inv_timer     > 0: inv_timer    -= 1
+
+            keys_held = pygame.key.get_pressed()
+            if keys_held[pygame.K_e] and not door_open \
+                    and _near_door_naga(player.rect, door_rects) \
+                    and door_kick_cd <= 0:
+                door_kicks += 1
+                door_kick_cd = 20
+                if door_kicks >= door_kicks_needed:
+                    door_open = True
+
+            god.update(player.rect)
+
+            if god.in_smite_range(player.rect) and inv_timer <= 0:
+                state = STATE_DEAD
+
+            for bolt in god.try_spawn_bolts(player.rect):
+                lightning_bolts.append(bolt)
+
+            for bolt in lightning_bolts[:]:
+                done = bolt.update()
+                if bolt.hits(player.rect) and inv_timer <= 0:
+                    player.lives -= 1
+                    inv_timer     = INVINCIBLE_FRAMES
+                    if player.lives <= 0:
+                        state = STATE_DEAD
+                if done:
+                    lightning_bolts.remove(bolt)
+
+            # Exit through top → epilogue
+            if door_open:
+                exit_zone = pygame.Rect(0, 0, WIDTH, 4 * T)
+                if player.rect.colliderect(exit_zone):
+                    import Start
+                    Start.god_epilogue()
+                    return
+
+        # ── Draw ──────────────────────────────────────────────────────────────
+        screen.fill(BLACK)
+
+        for layer in tmx_data.layers:
+            if not isinstance(layer, pytmx.TiledTileLayer):
+                continue
+            if layer.name in ("NagaSpawn", "Green_Lever", "Red_Lever"):
+                continue
+            # Add these — skip lever-gated walls and lever tiles entirely
+            if layer.name in ("Green_walls", "Red_Walls"):
+                continue
+            # Also skip the closed exit/entrance as before
+            if layer.name in ("Entracne - Open", "Entrance2 - Open") and not door_open:
+                continue
+            if layer.name in ("Entrance", "Entrance2") and door_open:
+                continue
+            if layer.name in ("Exit", "Exit2"):
+                continue
+            for x, y, gid in layer:
+                tile = tmx_data.get_tile_image_by_gid(gid)
+                if tile:
+                    screen.blit(tile, (x * T, y * T))
+
+        # Door kick UI — below the top door
+        if not door_open and door_rects:
+            door_union = door_rects[0].unionall(door_rects[1:])
+            progress   = door_kicks / max(door_kicks_needed, 1)
+            crack_col  = (int(220 * progress), int(80 * (1 - progress)), 0)
+            pygame.draw.rect(screen, crack_col, door_union.inflate(4, 4), 2, border_radius=2)
+
+            bx, by, bw = door_union.x, door_union.bottom + 4, door_union.width
+            pygame.draw.rect(screen, (50, 20, 20), (bx, by, bw, 5))
+            pygame.draw.rect(screen, (220, 80, 40), (bx, by, int(bw * progress), 5))
+
+            if _near_door_naga(player.rect, door_rects):
+                hint = font_sm.render(
+                    f"[E] Kick the door  ({door_kicks}/{door_kicks_needed})", True, WHITE)
+                hbg = pygame.Surface((hint.get_width() + 16, hint.get_height() + 8),
+                                      pygame.SRCALPHA)
+                hbg.fill((10, 10, 10, 180))
+                screen.blit(hbg,  (WIDTH // 2 - hbg.get_width() // 2, HEIGHT - 44))
+                screen.blit(hint, hint.get_rect(center=(WIDTH // 2, HEIGHT - 36)))
+
+        for bolt in lightning_bolts:
+            bolt.draw(screen)
+
+        god.draw(screen)
+        player.draw(screen)
+
+        hx, hy = 8, 8
+        for i in range(MAX_LIVES):
+            img = heart_full if i < player.lives else heart_empty
+            screen.blit(img, (hx, hy))
+            hx += img.get_width() + 4
+
+        if state == STATE_DEAD:
+            draw_dialog(screen,
+                ["The divine presence consumes you.",
+                 "There is no escaping divine wrath."],
+                [("R", "Try again"), ("Esc", "Quit")])
+
+        pygame.display.flip()
+
 
 if __name__ == "__main__":
-    main()
+    from TheGarden import God
+    test_god = God()
+    god_main(test_god, lives=3)

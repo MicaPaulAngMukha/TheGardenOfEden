@@ -1006,6 +1006,87 @@ def main():
 
         pygame.display.flip()
 
+def god_epilogue():
+    """
+    Final epilogue — Mikhail and Raziel react after player escapes Eden.
+    Called from TheNaga.god_main when player exits through the top.
+    """
+    EPILOGUE = [
+        ("Mikhail", "And stay out!"),
+        ("Mikhail", "Eden's gates are closed for you for good!"),
+        ("Mikhail", "How did they even get in there?!"),
+        ("Raziel",  "It matters not, Mikhail."),
+        ("Raziel",  "Eden has always been open to humanity."),
+        ("Mikhail", "!?!?"),
+        ("Raziel",  "It's only closed to those it deemed a sinner."),
+        ("Raziel",  "And this little human..."),
+        ("Raziel",  "Just branded themselves to an eternal barricade from this point on."),
+    ]
+
+    mikhail = Mikhail()
+    raziel  = Raziel()
+    mikhail.sprites.set_anim("idle")
+    raziel.sprites.set_anim("idle")
+
+    typewriter     = Typewriter()
+    epilogue_index = 0
+    typewriter.set_text(EPILOGUE[0][1])
+
+    try:
+        pygame.mixer.music.load(os.path.join(BASE_DIR, "audio", "2. Echoes of the Keep.mp3"))
+        pygame.mixer.music.set_volume(0.4)
+        pygame.mixer.music.play(-1)
+    except Exception:
+        pass
+
+    STATE_DIALOG = "dialog"
+    STATE_END    = "end"
+    state        = STATE_DIALOG
+
+    while True:
+        clock.tick(60)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    pygame.quit(); sys.exit()
+
+                if state == STATE_DIALOG:
+                    if event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                        if not typewriter.done:
+                            typewriter.skip()
+                        else:
+                            epilogue_index += 1
+                            if epilogue_index < len(EPILOGUE):
+                                typewriter.set_text(EPILOGUE[epilogue_index][1])
+                            else:
+                                state = STATE_END
+
+                elif state == STATE_END:
+                    if event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                        pygame.quit(); sys.exit()
+
+        typewriter.update()
+        raziel.update()
+
+        draw_map(screen, None, True)   # gate open — player just ran through
+        mikhail.draw(screen)
+        raziel.draw(screen)
+
+        if state == STATE_DIALOG and epilogue_index < len(EPILOGUE):
+            speaker = EPILOGUE[epilogue_index][0]
+            draw_angel_dialog(screen, speaker, typewriter)
+
+        elif state == STATE_END:
+            draw_dialog(screen,
+                ["You escaped Eden.",
+                 "But something tells you...",
+                 "...the garden will never forget."],
+                [("Enter", "Fin.")])
+
+        pygame.display.flip()
 
 if __name__ == "__main__":
     main()
