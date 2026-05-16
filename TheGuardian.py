@@ -12,8 +12,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 pygame.init()
 WIDTH, HEIGHT = 793, 650
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Garden of Eden – The Guardian")
+screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
 clock = pygame.time.Clock()
 
 tmx_data = pytmx.load_pygame(os.path.join(BASE_DIR, "TheGuardianMap.tmx"))

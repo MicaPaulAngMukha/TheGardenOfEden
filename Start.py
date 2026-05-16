@@ -4,13 +4,19 @@ import random
 import TheNaga
 import pytmx
 import os
+from display_scaler import DisplayScaler
 
 # --- Init ---
 pygame.init()
 WIDTH, HEIGHT = 793, 650
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
+screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
 pygame.display.set_caption("Garden of Eden")
 clock = pygame.time.Clock()
+
+# Create display scaler for letterboxing/pillarboxing
+scaler = DisplayScaler(WIDTH, HEIGHT)
+# Create game surface at native resolution
+game_surface = pygame.Surface((WIDTH, HEIGHT))
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 pygame.mixer.init()
@@ -496,7 +502,7 @@ class Raziel(Angel):
     def __init__(self):
         pos = (PATH_X + PATH_W + 14, GATE_Y + 8)
         super().__init__(pos, RAZIEL_COLOR, RAZIEL_HEAD)
-        self.spoken_count = 0
+        self.seen_dialogs = set()
         self.roaming      = False
         self.roam_target  = None
         self.roam_timer   = 0
@@ -711,7 +717,7 @@ def main():
     pygame.mixer.music.play(-1)
 
     bushes = get_bush_rects()
-    random.choice(bushes)["has_key"] = True  # hide key in random bush
+    key_spawned = False  # Track whether key has been spawned
     player    = Player()
     gate_open = False
     state     = STATE_EXPLORE
@@ -882,10 +888,9 @@ def main():
                     state = STATE_GAME_OVER if player.lives <= 0 else STATE_HIT
 
             # Raziel during chase
-            elif mikhail.chasing and raziel.near_player(player.rect) \
-                    and raziel.spoken_count < 3:
+            elif mikhail.chasing and raziel.near_player(player.rect):
                 angel_dialog = DIALOGS["raziel_during_chase"]
-                raziel.spoken_count = 3
+                raziel.seen_dialogs.add("raziel_during_chase")
                 dialog_index = 0
                 typewriter.set_text(angel_dialog[0][1])
                 chase_paused = True
@@ -907,9 +912,9 @@ def main():
 
             # Raziel roaming interaction
             elif raziel.roaming and raziel.near_player(player.rect) \
-                    and raziel.spoken_count == 2 and raziel_cooldown == 0:
+                    and raziel_cooldown == 0:
                 angel_dialog = DIALOGS["raziel_roaming"]
-                raziel.spoken_count = 3  # ← prevent re-trigger
+                raziel.seen_dialogs.add("raziel_roaming")
                 raziel_cooldown = 300
                 dialog_index = 0
                 typewriter.set_text(angel_dialog[0][1])
@@ -918,26 +923,32 @@ def main():
             # Raziel stationary
             elif not raziel.roaming and raziel.near_player(player.rect) \
                     and raziel_cooldown == 0:
-                if raziel.spoken_count == 0 and mikhail.approach == 0:
+                if mikhail.approach == 0:
                     angel_dialog = DIALOGS["raziel_before_mikhail"]
-                    raziel.spoken_count = 1
+                    raziel.seen_dialogs.add("raziel_before_mikhail")
                     raziel_cooldown = 300
                     dialog_index = 0
                     typewriter.set_text(angel_dialog[0][1])
                     state = STATE_ANGEL_DIALOG
-                elif raziel.spoken_count == 0 and mikhail.approach >= 1:
+                elif mikhail.approach == 1:
                     angel_dialog = DIALOGS["raziel_after_mikhail"]
-                    raziel.spoken_count = 1
+                    raziel.seen_dialogs.add("raziel_after_mikhail")
+                    raziel_cooldown = 300
                     dialog_index = 0
                     typewriter.set_text(angel_dialog[0][1])
                     state = STATE_ANGEL_DIALOG
-                elif raziel.spoken_count == 1 and mikhail.approach >= 2:
+                elif mikhail.approach >= 2 and not raziel.roaming:
                     angel_dialog = DIALOGS["raziel_after_mikhail_2"]
-                    raziel.spoken_count = 2
+                    raziel.seen_dialogs.add("raziel_after_mikhail_2")
                     dialog_index = 0
                     typewriter.set_text(angel_dialog[0][1])
                     raziel.start_roaming()
                     state = STATE_ANGEL_DIALOG
+
+            # Spawn key when chase first activates
+            if mikhail.chasing and not key_spawned:
+                random.choice(bushes)["has_key"] = True
+                key_spawned = True
 
             # Key pickup and gate logic
             if not player.has_key:

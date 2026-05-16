@@ -5,13 +5,20 @@ import sys
 import Start
 import os
 from Prologue import Prologue
+import CharactersPage
+from display_scaler import DisplayScaler
 
 # --- Init ---
 pygame.init()
 WIDTH, HEIGHT = 793, 650
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
+screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
 pygame.display.set_caption("Garden of Eden")
 clock = pygame.time.Clock()
+
+# Create display scaler for letterboxing/pillarboxing
+scaler = DisplayScaler(WIDTH, HEIGHT)
+# Create game surface at native resolution
+game_surface = pygame.Surface((WIDTH, HEIGHT))
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FONT = os.path.join(BASE_DIR, "font", "PixelifySans-VariableFont_wght.ttf")
@@ -41,7 +48,7 @@ menu_font   = pygame.font.Font(FONT, 36)
 BUTTON_W, BUTTON_H = 260, 56
 buttons = [
     {"label": "Start",      "id": "start",      "enabled": True},
-    {"label": "Characters", "id": "characters", "enabled": False},  # Unclickable
+    {"label": "Characters", "id": "characters", "enabled": True},  # Now enabled!
     {"label": "Exit",       "id": "exit",       "enabled": True},
 ]
 
@@ -56,7 +63,7 @@ def get_button_rects():
     return rects
 
 def draw_menu(mouse_pos):
-    screen.blit(background, (0, 0))
+    game_surface.blit(background, (0, 0))
 
     # --- Decorative horizontal rule ---
     rule_y = HEIGHT // 2 - 130
@@ -100,21 +107,30 @@ def draw_menu(mouse_pos):
         # Label
         label_surf = menu_font.render(btn["label"], True, text_col)
         label_rect = label_surf.get_rect(center=rect.center)
-        screen.blit(label_surf, label_rect)
+        game_surface.blit(label_surf, label_rect)
 
         # "Soon" tag for disabled
         if not enabled:
             soon_font = pygame.font.SysFont("Georgia", 13, italic=True)
             soon_surf = soon_font.render("coming soon", True, GRAY_TEXT)
             soon_rect = soon_surf.get_rect(midleft=(rect.right + 10, rect.centery))
-            screen.blit(soon_surf, soon_rect)
+            game_surface.blit(soon_surf, soon_rect)
 
+    # Scale and display the game surface with letterboxing/pillarboxing
+    scaler.display(screen, game_surface)
     pygame.display.flip()
 
 # --- Main Loop ---
 def main():
     while True:
-        mouse_pos = pygame.mouse.get_pos()
+        # Get window mouse position and transform to game coordinates
+        window_mouse_pos = pygame.mouse.get_pos()
+        window_width, window_height = screen.get_size()
+        mouse_pos = scaler.transform_mouse_pos(window_mouse_pos, window_width, window_height)
+        
+        # If mouse is in black bars, use a position outside the game area
+        if mouse_pos is None:
+            mouse_pos = (-1, -1)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -127,9 +143,14 @@ def main():
                     sys.exit()
 
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                # Transform click position to game coordinates
+                click_pos = scaler.transform_mouse_pos(event.pos, window_width, window_height)
+                if click_pos is None:
+                    continue  # Click was in black bars, ignore it
+                    
                 rects = get_button_rects()
                 for btn, rect in zip(buttons, rects):
-                    if rect.collidepoint(event.pos) and btn["enabled"]:
+                    if rect.collidepoint(click_pos) and btn["enabled"]:
                         if btn["id"] == "exit":
                             pygame.quit()
                             sys.exit()
@@ -137,8 +158,12 @@ def main():
                              pygame.mixer.music.fadeout(500)
                              p = Prologue(screen, clock)
                              p.run()
-                             pygame.quit()
-                             sys.exit()
+                             Start.main()
+                        elif btn["id"] == "characters":
+                             CharactersPage.main()
+                             # Restart music when returning from characters
+                             if not pygame.mixer.music.get_busy():
+                                 pygame.mixer.music.play(-1)
 
 
         draw_menu(mouse_pos)

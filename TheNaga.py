@@ -11,8 +11,7 @@ import math
 
 pygame.init()
 WIDTH, HEIGHT = 793, 650
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Garden of Eden – The Naga's Lair")
+screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
 clock  = pygame.time.Clock()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -317,6 +316,10 @@ class Naga:
             self.history.append((px, py))
         self.sprites = NagaSprites(scale=0.4)    # ← add this line
         self.current_dir = "down"
+        # Path caching to fix performance issue
+        self.cached_path = []
+        self.path_recalc_timer = 0
+        self.PATH_RECALC_INTERVAL = 3  # Recalculate path every 3 frames (balance between performance and smoothness)
 
     def find_path(self, start, goal, walls, green_walls, red_walls, green_active, red_active):
         if start == goal:
@@ -361,8 +364,14 @@ class Naga:
         naga_c, naga_r = int(hx // T), int(hy // T)
         play_c, play_r = player_rect.centerx // T, player_rect.centery // T
 
-        path = self.find_path((naga_c, naga_r), (play_c, play_r),
-                              walls, green_walls, red_walls, green_active, red_active)
+        # Only recalculate path periodically to improve performance
+        self.path_recalc_timer -= 1
+        if self.path_recalc_timer <= 0 or not self.cached_path:
+            self.cached_path = self.find_path((naga_c, naga_r), (play_c, play_r),
+                                              walls, green_walls, red_walls, green_active, red_active)
+            self.path_recalc_timer = self.PATH_RECALC_INTERVAL
+
+        path = self.cached_path
 
         if path and len(path) > 1:
             curr_c, curr_r = path[0]
@@ -1114,6 +1123,4 @@ def god_main(god, lives=MAX_LIVES):
 
 
 if __name__ == "__main__":
-    from TheGarden import God
-    test_god = God()
-    god_main(test_god, lives=3)
+    main()

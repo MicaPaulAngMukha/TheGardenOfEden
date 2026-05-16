@@ -395,8 +395,7 @@ class Prologue:
 # ═══════════════════════════════════════════════════════════════════════════
 def main():
     pygame.init()
-    screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    pygame.display.set_caption("Garden of Eden – Prologue")
+    screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
     clock  = pygame.time.Clock()
 
     p = Prologue(screen, clock)
