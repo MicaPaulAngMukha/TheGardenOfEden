@@ -5,6 +5,7 @@ import TheNaga
 import pytmx
 import os
 from display_scaler import DisplayScaler
+from resource_path import resource_path
 
 # --- Init ---
 pygame.init()
@@ -48,6 +49,19 @@ DIALOG_H      = 180
 PORTRAIT_SIZE = 140
 
 DIALOGS = {
+    "opening_cutscene": [
+        ("Narrator", "The Garden of Eden..."),
+        ("Narrator", "So the legends were true."),
+        ("Narrator", "Guarded by angels, ensuring that neither Adam or Eve will ever get to see paradise."),
+        ("Narrator", "..."),
+        ("Narrator", "The fruit of knowledge is just past those gates."),
+        ("Narrator", "The fruit which could give you all knowledge unknown to man..."),
+        ("Narrator", "The fruit which damned humanity..."),
+        ("Narrator", "And the fruit.."),
+        ("Narrator", "... which is the key to passing your midterms."),
+        ("Narrator", "Maybe you could just..."),
+        ("Narrator", "... ask to slip by?"),
+    ],
     "mikhail_1": [
         ("Mikhail", "Halt!"),
         ("Mikhail", "No human is allowed within Eden."),
@@ -123,7 +137,7 @@ GATE_H     = 24
 GATE_X     = WIDTH // 2 - GATE_W // 2
 GATE_RECT  = pygame.Rect(GATE_X, GATE_Y - GATE_H // 2, GATE_W, GATE_H)
 
-key_img = pygame.image.load("Key.png").convert_alpha()
+key_img = pygame.image.load(resource_path("Key.png")).convert_alpha()
 key_img = pygame.transform.scale(key_img, (16, 16))
 
 font = os.path.join(BASE_DIR, "font", "PixelifySans-VariableFont_wght.ttf")
@@ -148,7 +162,7 @@ try:
 except:
     portrait_raziel = None
 
-tmx_data = pytmx.load_pygame("StartMap.tmx")
+tmx_data = pytmx.load_pygame(resource_path("StartMap.tmx"))
 MAP_TW   = tmx_data.tilewidth   # 13
 MAP_TH   = tmx_data.tileheight  # 13
 MAP_PW   = tmx_data.width  * MAP_TW   # 61*13 = 793
@@ -650,6 +664,57 @@ def draw_angel_dialog(surface, speaker, typewriter):
                                box_y + DIALOG_H - prompt.get_height() - 8))
 
 
+def draw_narrator_dialog(surface, typewriter):
+    """Draw narrator dialog in centered box (no portrait)"""
+    box_w = 660
+    max_text_w = box_w - 40  # padding on both sides
+    
+    # Word wrap the text
+    current = typewriter.current
+    words = current.split(" ")
+    lines = []
+    line = ""
+    for word in words:
+        test = line + (" " if line else "") + word
+        if font_md.size(test)[0] <= max_text_w:
+            line = test
+        else:
+            if line:
+                lines.append(line)
+            line = word
+    if line:
+        lines.append(line)
+    
+    # Calculate box height based on number of lines
+    line_height = 26
+    box_h = max(100, len(lines) * line_height + 50)
+    box_x = WIDTH  // 2 - box_w // 2
+    box_y = HEIGHT // 2 - box_h // 2
+
+    ov = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
+    ov.fill((10, 10, 10, 210))
+    surface.blit(ov, (box_x, box_y))
+    pygame.draw.rect(surface, (160, 160, 180),
+                     (box_x, box_y, box_w, box_h), 2, border_radius=6)
+    
+    # Draw wrapped text
+    y_off = box_y + box_h // 2 - (len(lines) * line_height) // 2
+    for ln in lines:
+        txt = font_md.render(ln, True, WHITE)
+        surface.blit(txt, (box_x + 20, y_off))
+        y_off += line_height
+
+    ticks = pygame.time.get_ticks()
+    if typewriter.done and (ticks // 500) % 2 == 0:
+        p = font_sm.render("▶ Enter", True, (160, 160, 160))
+        surface.blit(p, (box_x + box_w - p.get_width() - 12,
+                          box_y + box_h - p.get_height() - 8))
+    elif not typewriter.done:
+        p = font_sm.render("▶ Skip", True, (100, 100, 100))
+        surface.blit(p, (box_x + box_w - p.get_width() - 12,
+                          box_y + box_h - p.get_height() - 8))
+
+
 # --- Draw functions ---
 def draw_map(surface, player, gate_open):
     for layer in tmx_data.layers:        # ← changed from visible_layers to layers
@@ -690,6 +755,8 @@ def draw_dialog(surface, lines, options=None):
 
 
 # --- States ---
+STATE_CUTSCENE_WALK = "cutscene_walk"
+STATE_CUTSCENE_DIALOG = "cutscene_dialog"
 STATE_EXPLORE  = "explore"
 STATE_LOCKED   = "locked"
 STATE_PROMPT   = "prompt"
@@ -721,7 +788,7 @@ def main():
     key_spawned = False  # Track whether key has been spawned
     player    = Player()
     gate_open = False
-    state     = STATE_EXPLORE
+    state     = STATE_CUTSCENE_WALK  # Start with cutscene
 
     mikhail = Mikhail()
 
@@ -737,6 +804,11 @@ def main():
     push_timer = 0
     chase_paused = False
     raziel_cooldown = 0
+    
+    # Cutscene variables
+    cutscene_walk_target_y = HEIGHT // 2 + 50  # Stop roughly in the middle
+    cutscene_dialog = DIALOGS["opening_cutscene"]
+    cutscene_dialog_index = 0
 
     while True:
         clock.tick(60)
@@ -748,7 +820,19 @@ def main():
                 if event.key == pygame.K_ESCAPE:
                     pygame.quit(); sys.exit()
 
-                if state == STATE_LOCKED:
+                if state == STATE_CUTSCENE_DIALOG:
+                    if event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                        if not typewriter.done:
+                            typewriter.skip()
+                        else:
+                            cutscene_dialog_index += 1
+                            if cutscene_dialog_index < len(cutscene_dialog):
+                                typewriter.set_text(cutscene_dialog[cutscene_dialog_index][1])
+                            else:
+                                # Cutscene complete, start normal gameplay
+                                state = STATE_EXPLORE
+
+                elif state == STATE_LOCKED:
                     if event.key in (pygame.K_RETURN, pygame.K_SPACE):
                         state = STATE_EXPLORE
 
@@ -860,7 +944,23 @@ def main():
         if state in (STATE_ANGEL_DIALOG, STATE_GATE_DIALOG):
             typewriter.update()
 
-        if state == STATE_EXPLORE:
+        # Cutscene: Player walks upward automatically
+        if state == STATE_CUTSCENE_WALK:
+            # Automatically move player upward
+            player.rect.y -= 2
+            player.sprites.set_anim("run", "up")
+            
+            # When player reaches target position, start dialog
+            if player.rect.centery <= cutscene_walk_target_y:
+                player.sprites.set_anim("idle", "up")
+                state = STATE_CUTSCENE_DIALOG
+                typewriter.set_text(cutscene_dialog[0][1])
+        
+        # Cutscene: Dialog playing
+        elif state == STATE_CUTSCENE_DIALOG:
+            typewriter.update()
+
+        elif state == STATE_EXPLORE:
             keys = pygame.key.get_pressed()
             player.move(keys, [])
 
@@ -1015,6 +1115,10 @@ def main():
         if state in (STATE_ANGEL_DIALOG, STATE_GATE_DIALOG) and dialog_index < len(angel_dialog):
             speaker, _ = angel_dialog[dialog_index]
             draw_angel_dialog(game_surface, speaker, typewriter)
+        
+        # Draw cutscene narrator dialog
+        if state == STATE_CUTSCENE_DIALOG and cutscene_dialog_index < len(cutscene_dialog):
+            draw_narrator_dialog(game_surface, typewriter)
 
         # Scale and display the game surface with letterboxing/pillarboxing
         scaler.display(screen, game_surface)

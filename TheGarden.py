@@ -5,6 +5,7 @@ import math
 import random
 import pytmx
 from display_scaler import DisplayScaler
+from resource_path import resource_path
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -18,7 +19,7 @@ scaler = DisplayScaler(WIDTH, HEIGHT)
 # Create game surface at native resolution
 game_surface = pygame.Surface((WIDTH, HEIGHT))
 
-tmx_data = pytmx.load_pygame(os.path.join(BASE_DIR, "TheGardenMap.tmx"))
+tmx_data = pytmx.load_pygame(resource_path("TheGardenMap.tmx"))
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 BLACK          = (0,   0,   0)

@@ -9,6 +9,7 @@ import os
 import TheTwins
 import math
 from display_scaler import DisplayScaler
+from resource_path import resource_path
 
 pygame.init()
 WIDTH, HEIGHT = 793, 650
@@ -23,10 +24,10 @@ game_surface = pygame.Surface((WIDTH, HEIGHT))
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 pygame.mixer.init()
 
-tmx_data = pytmx.load_pygame("TheNagaMap.tmx")
+tmx_data = pytmx.load_pygame(resource_path("TheNagaMap.tmx"))
 
-heart_full = pygame.image.load("LifeHeart.png").convert_alpha()
-heart_empty = pygame.image.load("LifeHeartLoss.png").convert_alpha()
+heart_full = pygame.image.load(resource_path("LifeHeart.png")).convert_alpha()
+heart_empty = pygame.image.load(resource_path("LifeHeartLoss.png")).convert_alpha()
 
 try:
     portrait_naga = pygame.transform.scale(
@@ -78,9 +79,9 @@ COLS = WIDTH  // T
 ROWS = HEIGHT // T
 
 # ── Fonts ─────────────────────────────────────────────────────────────────────
-font_sm  = pygame.font.Font("C:/Users/Mica/PycharmProjects/TheGardenOfEden/font/PixelifySans-VariableFont_wght.ttf", 15)
-font_md  = pygame.font.Font("C:/Users/Mica/PycharmProjects/TheGardenOfEden/font/PixelifySans-VariableFont_wght.ttf", 19)
-font_hud = pygame.font.Font("C:/Users/Mica/PycharmProjects/TheGardenOfEden/font/PixelifySans-VariableFont_wght.ttf", 15)
+font_sm  = pygame.font.Font(resource_path("font/PixelifySans-VariableFont_wght.ttf"), 15)
+font_md  = pygame.font.Font(resource_path("font/PixelifySans-VariableFont_wght.ttf"), 19)
+font_hud = pygame.font.Font(resource_path("font/PixelifySans-VariableFont_wght.ttf"), 15)
 
 # ── Player spawn ──────────────────────────────────────────────────────────────
 PLAYER_SPAWN = (21 * T + T // 2, 4 * T + 6)
