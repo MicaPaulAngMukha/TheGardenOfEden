@@ -6,6 +6,7 @@ import random
 import pytmx
 import collections
 import TheGarden
+from display_scaler import DisplayScaler
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -13,6 +14,11 @@ pygame.init()
 WIDTH, HEIGHT = 793, 650
 screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
 clock = pygame.time.Clock()
+
+# Create display scaler for letterboxing/pillarboxing
+scaler = DisplayScaler(WIDTH, HEIGHT)
+# Create game surface at native resolution
+game_surface = pygame.Surface((WIDTH, HEIGHT))
 
 tmx_data = pytmx.load_pygame(os.path.join(BASE_DIR, "TheStatuesMap.tmx"))
 
@@ -947,30 +953,30 @@ def main():
                     state = STATE_PROMPT
 
         # ── Draw ──────────────────────────────────────────────────────────────
-        draw_scene(screen, player, statues, hammer_pos, key_pos,
+        draw_scene(game_surface, player, statues, hammer_pos, key_pos,
                    gate_open, darkness_active, entrance_closed,
                    pulse_alpha, is_light_phase)
 
         if state == STATE_CUTSCENE:
             tag, _, _ = CUTSCENE[cs_index]
-            draw_cutscene_line(screen, tag, typewriter)
+            draw_cutscene_line(game_surface, tag, typewriter)
 
         elif state == STATE_PROMPT:
-            draw_simple_dialog(screen,
+            draw_simple_dialog(game_surface,
                                ["You have the key.", "Escape the statue room?"],
                                [("Y", "Yes, escape"), ("N", "Not yet")])
 
         elif state == STATE_HAMMER_DIALOG:
-            draw_cutscene_line(screen, "PLAYER", typewriter)
+            draw_cutscene_line(game_surface, "PLAYER", typewriter)
 
         elif state == STATE_HIT:
-            draw_simple_dialog(screen,
+            draw_simple_dialog(game_surface,
                 [f"A statue grabs you!  Lives: {player.lives}",
                  "You stumble back..."],
                 [("Enter", "Continue")])
 
         elif state == STATE_GAME_OVER:
-            draw_simple_dialog(screen,
+            draw_simple_dialog(game_surface,
                 ["You were crushed by the statues.",
                  "The garden claims another soul."],
                 [("R", "Try again"), ("Esc", "Quit")])
@@ -980,7 +986,8 @@ def main():
             TheGarden.main()
             pygame.quit()
 
-
+        # Scale and display the game surface with letterboxing/pillarboxing
+        scaler.display(screen, game_surface)
         pygame.display.flip()
 
 
@@ -1171,7 +1178,7 @@ def god_main(god, lives=MAX_LIVES):
                     return
 
         # ── Draw ──────────────────────────────────────────────────────────────
-        screen.fill(BLACK)
+        game_surface.fill(BLACK)
 
         # TMX layers — draw map but skip all statue layers
         for layer in tmx_data.layers:
@@ -1190,18 +1197,18 @@ def god_main(god, lives=MAX_LIVES):
             for x, y, gid in layer:
                 tile = tmx_data.get_tile_image_by_gid(gid)
                 if tile:
-                    screen.blit(tile, (x * T, y * T))
+                    game_surface.blit(tile, (x * T, y * T))
 
         # Door kick UI
         if not door_open and door_rects:
             door_union = door_rects[0].unionall(door_rects[1:])
             progress   = door_kicks / max(door_kicks_needed, 1)
             crack_col  = (int(220 * progress), int(80 * (1 - progress)), 0)
-            pygame.draw.rect(screen, crack_col, door_union.inflate(4, 4), 2, border_radius=2)
+            pygame.draw.rect(game_surface, crack_col, door_union.inflate(4, 4), 2, border_radius=2)
 
             bx, by, bw = door_union.x, door_union.y - 10, door_union.width
-            pygame.draw.rect(screen, (50, 20, 20), (bx, by, bw, 5))
-            pygame.draw.rect(screen, (220, 80, 40), (bx, by, int(bw * progress), 5))
+            pygame.draw.rect(game_surface, (50, 20, 20), (bx, by, bw, 5))
+            pygame.draw.rect(game_surface, (220, 80, 40), (bx, by, int(bw * progress), 5))
 
             if _near_door(player.rect, door_rects, radius=50):
                 hint = font_sm.render(
@@ -1209,37 +1216,39 @@ def god_main(god, lives=MAX_LIVES):
                 hbg = pygame.Surface((hint.get_width() + 16, hint.get_height() + 8),
                                       pygame.SRCALPHA)
                 hbg.fill((10, 10, 10, 180))
-                screen.blit(hbg,  (WIDTH // 2 - hbg.get_width() // 2, HEIGHT - 44))
-                screen.blit(hint, hint.get_rect(center=(WIDTH // 2, HEIGHT - 36)))
+                game_surface.blit(hbg,  (WIDTH // 2 - hbg.get_width() // 2, HEIGHT - 44))
+                game_surface.blit(hint, hint.get_rect(center=(WIDTH // 2, HEIGHT - 36)))
 
         # Lightning bolts
         for bolt in lightning_bolts:
-            bolt.draw(screen)
+            bolt.draw(game_surface)
 
         # God
-        god.draw(screen)
+        god.draw(game_surface)
 
         # Player
-        player.draw(screen)
+        player.draw(game_surface)
 
         # HUD
         hx, hy = 8, 8
         for i in range(MAX_LIVES):
             if heart_full and heart_empty:
                 img = heart_full if i < player.lives else heart_empty
-                screen.blit(img, (hx, hy))
+                game_surface.blit(img, (hx, hy))
                 hx += img.get_width() + 4
             else:
                 col = (220, 50, 50) if i < player.lives else (80, 80, 80)
-                pygame.draw.circle(screen, col, (hx + 8, hy + 8), 7)
+                pygame.draw.circle(game_surface, col, (hx + 8, hy + 8), 7)
                 hx += 20
 
         if state == STATE_GAME_OVER:
-            draw_simple_dialog(screen,
+            draw_simple_dialog(game_surface,
                 ["The divine presence consumes you.",
                  "There is no escaping divine wrath."],
                 [("R", "Try again"), ("Esc", "Quit")])
 
+        # Scale and display the game surface with letterboxing/pillarboxing
+        scaler.display(screen, game_surface)
         pygame.display.flip()
 
 

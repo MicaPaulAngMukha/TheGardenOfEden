@@ -2,6 +2,7 @@ import pygame
 import sys
 import os
 import Start
+from display_scaler import DisplayScaler
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -182,7 +183,11 @@ class Prologue:
         pygame.mixer.music.play(-1)
         self.screen = screen
         self.clock  = clock
-        self.W, self.H = screen.get_size()
+        self.W, self.H = 793, 650  # Native resolution
+        
+        # Create display scaler and game surface
+        self.scaler = DisplayScaler(self.W, self.H)
+        self.game_surface = pygame.Surface((self.W, self.H))
 
         # ── font ──────────────────────────────────────────────────────────
         font_path = os.path.join(BASE_DIR, "font", "PixelifySans-VariableFont_wght.ttf")
@@ -331,13 +336,13 @@ class Prologue:
                 self.hold_timer += 1
 
             # ── draw ──────────────────────────────────────────────────────
-            self.screen.fill(BLACK)
+            self.game_surface.fill(BLACK)
 
             # Draw current image (full alpha)
             if self.current_img:
                 ix = self.W // 2 - self.current_img.get_width() // 2
                 iy = self.H // 2 - self.current_img.get_height() // 2
-                self.screen.blit(self.current_img, (ix, iy))
+                self.game_surface.blit(self.current_img, (ix, iy))
 
             # Draw next image fading in
             if self.fading and self.next_img:
@@ -345,13 +350,13 @@ class Prologue:
                 tmp.set_alpha(self.fade_alpha)
                 ix = self.W // 2 - tmp.get_width() // 2
                 iy = self.H // 2 - tmp.get_height() // 2
-                self.screen.blit(tmp, (ix, iy))
+                self.game_surface.blit(tmp, (ix, iy))
 
             # Semi-transparent bottom bar for text
             bar_h = 110
             bar = pygame.Surface((self.W, bar_h), pygame.SRCALPHA)
             bar.fill((0, 0, 0, 175))
-            self.screen.blit(bar, (0, self.H - bar_h))
+            self.game_surface.blit(bar, (0, self.H - bar_h))
 
             # Typewriter text (word-wrapped)
             self._draw_text(self.tw_text[:self.tw_visible],
@@ -360,8 +365,10 @@ class Prologue:
             # Hint
             hint_col = (120, 120, 120)
             hint = self.font.render("[S] skip / fast-forward   [ESC] skip all", True, hint_col)
-            self.screen.blit(hint, (self.W // 2 - hint.get_width() // 2, self.H - 22))
+            self.game_surface.blit(hint, (self.W // 2 - hint.get_width() // 2, self.H - 22))
 
+            # Scale and display with letterboxing/pillarboxing
+            self.scaler.display(self.screen, self.game_surface)
             pygame.display.flip()
 
         pygame.mixer.music.fadeout(800)
@@ -386,7 +393,7 @@ class Prologue:
         y = y_start
         for ln in lines:
             surf = self.font.render(ln, True, WHITE)
-            self.screen.blit(surf, (self.W // 2 - surf.get_width() // 2, y))
+            self.game_surface.blit(surf, (self.W // 2 - surf.get_width() // 2, y))
             y += surf.get_height() + 6
 
 

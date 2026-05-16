@@ -67,15 +67,15 @@ def draw_menu(mouse_pos):
 
     # --- Decorative horizontal rule ---
     rule_y = HEIGHT // 2 - 130
-    pygame.draw.line(screen, DARK_GOLD, (WIDTH // 2 - 200, rule_y), (WIDTH // 2 + 200, rule_y), 1)
+    pygame.draw.line(game_surface, DARK_GOLD, (WIDTH // 2 - 200, rule_y), (WIDTH // 2 + 200, rule_y), 1)
 
     # --- Title ---
     title_surf = title_font.render("Garden of Eden", True, GOLD)
     title_rect = title_surf.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 170))
-    screen.blit(title_surf, title_rect)
+    game_surface.blit(title_surf, title_rect)
 
     # --- Decorative rule below title ---
-    pygame.draw.line(screen, DARK_GOLD, (WIDTH // 2 - 200, rule_y + 10), (WIDTH // 2 + 200, rule_y + 10), 1)
+    pygame.draw.line(game_surface, DARK_GOLD, (WIDTH // 2 - 200, rule_y + 10), (WIDTH // 2 + 200, rule_y + 10), 1)
 
     # --- Buttons ---
     rects = get_button_rects()
@@ -99,10 +99,10 @@ def draw_menu(mouse_pos):
 
         # Fill on hover
         if fill_col:
-            pygame.draw.rect(screen, fill_col, rect, border_radius=4)
+            pygame.draw.rect(game_surface, fill_col, rect, border_radius=4)
 
         # Border
-        pygame.draw.rect(screen, border_col, rect, width=2, border_radius=4)
+        pygame.draw.rect(game_surface, border_col, rect, width=2, border_radius=4)
 
         # Label
         label_surf = menu_font.render(btn["label"], True, text_col)

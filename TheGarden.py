@@ -4,6 +4,7 @@ import os
 import math
 import random
 import pytmx
+from display_scaler import DisplayScaler
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -11,6 +12,11 @@ pygame.init()
 WIDTH, HEIGHT = 793, 650
 screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
 clock = pygame.time.Clock()
+
+# Create display scaler for letterboxing/pillarboxing
+scaler = DisplayScaler(WIDTH, HEIGHT)
+# Create game surface at native resolution
+game_surface = pygame.Surface((WIDTH, HEIGHT))
 
 tmx_data = pytmx.load_pygame(os.path.join(BASE_DIR, "TheGardenMap.tmx"))
 
@@ -1027,7 +1033,7 @@ def main():
             return
 
         # ── Draw ──────────────────────────────────────────────────────────
-        draw_scene(screen, player, god, lightning_bolts,
+        draw_scene(game_surface, player, god, lightning_bolts,
                    door_open, entrance_closed,
                    tree_center, door_rects,
                    door_kicks, door_kicks_needed,
@@ -1036,10 +1042,10 @@ def main():
                    god_spawned)
 
         if state == STATE_CUTSCENE:
-            draw_cutscene_line(screen, "NARRATE", typewriter)
+            draw_cutscene_line(game_surface, "NARRATE", typewriter)
 
         elif state == STATE_APPLE_DIALOG:
-            draw_simple_dialog(screen,
+            draw_simple_dialog(game_surface,
                 ["You feel like you're making a terrible mistake.", "..."],
                 [("Enter", "Take a bite anyway")])
 
@@ -1047,25 +1053,27 @@ def main():
             ticks = pygame.time.get_ticks()
             if (ticks // 200) % 2 == 0:
                 warn = font_lg.render("!!!", True, (255, 200, 40))
-                screen.blit(warn, warn.get_rect(center=(WIDTH // 2, HEIGHT // 2)))
+                game_surface.blit(warn, warn.get_rect(center=(WIDTH // 2, HEIGHT // 2)))
 
         elif state == STATE_GAME_OVER:
-            draw_simple_dialog(screen,
+            draw_simple_dialog(game_surface,
                 ["The divine presence consumes you.",
                  "There is no escaping divine wrath."],
                 [("R", "Try again"), ("Esc", "Quit")])
 
         elif state == STATE_EPILOGUE:
             speaker = EPILOGUE[epilogue_index][0]
-            draw_angel_dialog(screen, speaker, typewriter)
+            draw_angel_dialog(game_surface, speaker, typewriter)
 
         elif state == STATE_END:
-            draw_simple_dialog(screen,
+            draw_simple_dialog(game_surface,
                 ["You escaped Eden.",
                  "But something tells you...",
                  "...the garden will never forget."],
                 [("Enter", "Fin.")])
 
+        # Scale and display the game surface with letterboxing/pillarboxing
+        scaler.display(screen, game_surface)
         pygame.display.flip()
 
 

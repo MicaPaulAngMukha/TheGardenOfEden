@@ -7,6 +7,7 @@ import pytmx
 import collections
 import TheGuardian
 import TheGarden
+from display_scaler import DisplayScaler
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -14,6 +15,11 @@ pygame.init()
 WIDTH, HEIGHT = 793, 650
 screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
 clock  = pygame.time.Clock()
+
+# Create display scaler for letterboxing/pillarboxing
+scaler = DisplayScaler(WIDTH, HEIGHT)
+# Create game surface at native resolution
+game_surface = pygame.Surface((WIDTH, HEIGHT))
 
 tmx_data = pytmx.load_pygame(os.path.join(BASE_DIR, "TheTwinsMap.tmx"))
 
@@ -1193,7 +1199,7 @@ def main():
                     state = STATE_WIN
 
         # ── Draw ─────────────────────────────────────────────────────────────
-        draw_scene(screen, walls,
+        draw_scene(game_surface, walls,
                    abel_banished, cain_banished,
                    player, cain, abel, spears,
                    fragments, player.lives, inv_timer,
@@ -1202,50 +1208,50 @@ def main():
                    abel_ban_tile, cain_ban_tile)
 
         if state == STATE_ABEL_CAUGHT:
-            draw_dialog(screen,
+            draw_dialog(game_surface,
                 ["Abel grabs you and hurls you back!",
                  "He narrows his eyes... next time won't be so merciful."],
                 [("Enter", "Continue")])
 
         elif state == STATE_BANISH_ABEL:
-            draw_dialog(screen,
+            draw_dialog(game_surface,
                 ["You have gathered the prayer fragments.",
                  "Banish Abel?"],
                 [("Enter", "Yes — banish him"), ("Esc", "Not yet")])
 
         elif state == STATE_BANISH_CAIN:
-            draw_dialog(screen,
+            draw_dialog(game_surface,
                 ["You have gathered the prayer fragments.",
                  "Banish Cain?"],
                 [("Enter", "Yes — banish him"), ("Esc", "Not yet")])
 
         elif state == STATE_ABEL_BANISHED:
-            draw_dialog(screen,
+            draw_dialog(game_surface,
                 ["Abel fades into the light...",
                  "Cain roars with grief — his throws grow wilder and farther!"],
                 [("Enter", "Continue")])
 
         elif state == STATE_CAIN_BANISHED:
-            draw_dialog(screen,
+            draw_dialog(game_surface,
                 ["Cain is cast out...",
                  "Abel's eyes burn — he moves with terrifying speed!"],
                 [("Enter", "Continue")])
 
         elif state == STATE_BOTH_BANISHED:
-            draw_dialog(screen,
+            draw_dialog(game_surface,
                 ["Both twins have been banished.",
                  "A key falls to the ground...",
                  "The exit is open."],
                 [("Enter", "Continue")])
 
         elif state == STATE_HIT:
-            draw_dialog(screen,
+            draw_dialog(game_surface,
                 [f"You are wounded!  Lives: {player.lives}",
                  "Gather yourself..."],
                 [("Enter", "Continue")])
 
         elif state == STATE_GAME_OVER:
-            draw_dialog(screen,
+            draw_dialog(game_surface,
                 ["You have fallen in the garden.",
                  "The twins stand triumphant."],
                 [("R", "Try again"), ("Esc", "Quit")])
@@ -1256,8 +1262,10 @@ def main():
         if state == STATE_TWINS_DIALOG and dialog_index < len(twins_dialog):
             speaker, _ = twins_dialog[dialog_index]
             typewriter.update()
-            draw_twins_dialog(screen, speaker, typewriter)
+            draw_twins_dialog(game_surface, speaker, typewriter)
 
+        # Scale and display the game surface with letterboxing/pillarboxing
+        scaler.display(screen, game_surface)
         pygame.display.flip()
 
 # =============================================================================
@@ -1433,7 +1441,7 @@ def god_main(god, lives=MAX_LIVES):
                     return
 
         # ── Draw ──────────────────────────────────────────────────────────────
-        screen.fill(BLACK)
+        game_surface.fill(BLACK)
 
         for layer in tmx_data.layers:
             if not isinstance(layer, pytmx.TiledTileLayer):
@@ -1450,20 +1458,20 @@ def god_main(god, lives=MAX_LIVES):
             for x, y, gid in layer:
                 tile = tmx_data.get_tile_image_by_gid(gid)
                 if tile:
-                    screen.blit(tile, (x * T, y * T))
+                    game_surface.blit(tile, (x * T, y * T))
 
         # Door kick UI — progress bar BELOW the top door
         if not door_open and door_rects:
             door_union = door_rects[0].unionall(door_rects[1:])
             progress   = door_kicks / max(door_kicks_needed, 1)
             crack_col  = (int(220 * progress), int(80 * (1 - progress)), 0)
-            pygame.draw.rect(screen, crack_col, door_union.inflate(4, 4), 2, border_radius=2)
+            pygame.draw.rect(game_surface, crack_col, door_union.inflate(4, 4), 2, border_radius=2)
 
             bx = door_union.x
             by = door_union.bottom + 4   # below the door, not above
             bw = door_union.width
-            pygame.draw.rect(screen, (50, 20, 20), (bx, by, bw, 5))
-            pygame.draw.rect(screen, (220, 80, 40), (bx, by, int(bw * progress), 5))
+            pygame.draw.rect(game_surface, (50, 20, 20), (bx, by, bw, 5))
+            pygame.draw.rect(game_surface, (220, 80, 40), (bx, by, int(bw * progress), 5))
 
             if _near_door_twins(player.rect, door_rects):
                 hint = font_sm.render(
@@ -1471,32 +1479,34 @@ def god_main(god, lives=MAX_LIVES):
                 hbg = pygame.Surface((hint.get_width() + 16, hint.get_height() + 8),
                                       pygame.SRCALPHA)
                 hbg.fill((10, 10, 10, 180))
-                screen.blit(hbg,  (WIDTH // 2 - hbg.get_width() // 2, HEIGHT - 44))
-                screen.blit(hint, hint.get_rect(center=(WIDTH // 2, HEIGHT - 36)))
+                game_surface.blit(hbg,  (WIDTH // 2 - hbg.get_width() // 2, HEIGHT - 44))
+                game_surface.blit(hint, hint.get_rect(center=(WIDTH // 2, HEIGHT - 36)))
 
         for bolt in lightning_bolts:
-            bolt.draw(screen)
+            bolt.draw(game_surface)
 
-        god.draw(screen)
-        player.draw(screen)
+        god.draw(game_surface)
+        player.draw(game_surface)
 
         hx, hy = 8, 8
         for i in range(MAX_LIVES):
             if heart_full and heart_empty:
                 img = heart_full if i < player.lives else heart_empty
-                screen.blit(img, (hx, hy))
+                game_surface.blit(img, (hx, hy))
                 hx += img.get_width() + 4
             else:
                 col = (220, 50, 50) if i < player.lives else (80, 80, 80)
-                pygame.draw.circle(screen, col, (hx + 8, hy + 8), 7)
+                pygame.draw.circle(game_surface, col, (hx + 8, hy + 8), 7)
                 hx += 20
 
         if state == STATE_DEAD:
-            draw_dialog(screen,
+            draw_dialog(game_surface,
                 ["The divine presence consumes you.",
                  "There is no escaping divine wrath."],
                 [("R", "Try again"), ("Esc", "Quit")])
 
+        # Scale and display the game surface with letterboxing/pillarboxing
+        scaler.display(screen, game_surface)
         pygame.display.flip()
 
 

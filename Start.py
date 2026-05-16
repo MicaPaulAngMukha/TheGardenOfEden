@@ -159,7 +159,8 @@ def fade_to_black():
     overlay.fill((0, 0, 0))
     for alpha in range(0, 255, 5):
         overlay.set_alpha(alpha)
-        screen.blit(overlay, (0, 0))
+        game_surface.blit(overlay, (0, 0))
+        scaler.display(screen, game_surface)
         pygame.display.flip()
         clock.tick(60)
 
@@ -972,49 +973,51 @@ def main():
             elif player.near_gate():
                 state = STATE_PROMPT if player.has_key else STATE_LOCKED
 
-        draw_map(screen, player, gate_open)
-        mikhail.draw(screen)
-        raziel.draw(screen)
-        player.draw(screen)
+        draw_map(game_surface, player, gate_open)
+        mikhail.draw(game_surface)
+        raziel.draw(game_surface)
+        player.draw(game_surface)
 
         if state == STATE_LOCKED:
-            draw_dialog(screen,
+            draw_dialog(game_surface,
                 ["The gate is locked...",
                  "You need a key to pass."],
                 [("Enter", "OK")])
         elif state == STATE_PROMPT:
-            draw_dialog(screen,
+            draw_dialog(game_surface,
                 ["You have the key.",
                  "Unlock the gate?"],
                 [("Y", "Yes, unlock it"),
                  ("N", "Not yet")])
         elif state == STATE_UNLOCKED:
-            draw_dialog(screen,
+            draw_dialog(game_surface,
                 ["*click*",
                  "The gate swings open."],
                 [("Enter", "Continue")])
         elif state == STATE_PICKUP:
-            draw_dialog(screen,
+            draw_dialog(game_surface,
                 ["You found a hidden key!",
                  "It might open something nearby..."],
                 [("Enter", "OK")])
 
         if state == STATE_HIT:
-            draw_dialog(screen,
+            draw_dialog(game_surface,
                         [f"Mikhail strikes you down!  Lives: {player.lives}",
                          "You stumble back..."],
                         [("Enter", "Continue")])
 
         elif state == STATE_GAME_OVER:
-            draw_dialog(screen,
+            draw_dialog(game_surface,
                         ["You have been cast out.",
                          "Mikhail stands triumphant."],
                         [("R", "Try again"), ("Esc", "Quit")])
 
         if state in (STATE_ANGEL_DIALOG, STATE_GATE_DIALOG) and dialog_index < len(angel_dialog):
             speaker, _ = angel_dialog[dialog_index]
-            draw_angel_dialog(screen, speaker, typewriter)
+            draw_angel_dialog(game_surface, speaker, typewriter)
 
+        # Scale and display the game surface with letterboxing/pillarboxing
+        scaler.display(screen, game_surface)
         pygame.display.flip()
 
 def god_epilogue():
@@ -1082,21 +1085,23 @@ def god_epilogue():
         typewriter.update()
         raziel.update()
 
-        draw_map(screen, None, True)   # gate open — player just ran through
-        mikhail.draw(screen)
-        raziel.draw(screen)
+        draw_map(game_surface, None, True)   # gate open — player just ran through
+        mikhail.draw(game_surface)
+        raziel.draw(game_surface)
 
         if state == STATE_DIALOG and epilogue_index < len(EPILOGUE):
             speaker = EPILOGUE[epilogue_index][0]
-            draw_angel_dialog(screen, speaker, typewriter)
+            draw_angel_dialog(game_surface, speaker, typewriter)
 
         elif state == STATE_END:
-            draw_dialog(screen,
+            draw_dialog(game_surface,
                 ["You escaped Eden.",
                  "But something tells you...",
                  "...the garden will never forget."],
                 [("Enter", "Fin.")])
 
+        # Scale and display the game surface with letterboxing/pillarboxing
+        scaler.display(screen, game_surface)
         pygame.display.flip()
 
 if __name__ == "__main__":
