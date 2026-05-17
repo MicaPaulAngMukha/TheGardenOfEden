@@ -1146,6 +1146,11 @@ def god_epilogue():
     mikhail.sprites.set_anim("idle")
     raziel.sprites.set_anim("idle")
 
+    # Create player for cutscene
+    player = Player()
+    player.rect.centerx = WIDTH // 2
+    player.rect.centery = GATE_Y - 20  # Start just above the gate
+
     typewriter     = Typewriter()
     epilogue_index = 0
     typewriter.set_text(EPILOGUE[0][1])
@@ -1157,9 +1162,13 @@ def god_epilogue():
     except Exception:
         pass
 
+    STATE_CUTSCENE_RUN = "cutscene_run"
     STATE_DIALOG = "dialog"
     STATE_END    = "end"
-    state        = STATE_DIALOG
+    state        = STATE_CUTSCENE_RUN
+    
+    # Cutscene target - player runs to bottom of screen
+    cutscene_target_y = HEIGHT - 40
 
     while True:
         clock.tick(60)
@@ -1186,12 +1195,29 @@ def god_epilogue():
                     if event.key in (pygame.K_RETURN, pygame.K_SPACE):
                         pygame.quit(); sys.exit()
 
-        typewriter.update()
+        # Cutscene: Player runs downward automatically
+        if state == STATE_CUTSCENE_RUN:
+            player.rect.y += 3  # Move player downward
+            player.sprites.set_anim("run", "down")
+            
+            # When player reaches target position, start dialog
+            if player.rect.centery >= cutscene_target_y:
+                player.sprites.set_anim("idle", "down")
+                state = STATE_DIALOG
+        
+        # Dialog state
+        elif state == STATE_DIALOG:
+            typewriter.update()
+
         raziel.update()
 
-        draw_map(game_surface, None, True)   # gate open — player just ran through
+        draw_map(game_surface, player if state == STATE_CUTSCENE_RUN else None, True)   # gate open
         mikhail.draw(game_surface)
         raziel.draw(game_surface)
+        
+        # Draw player during cutscene
+        if state == STATE_CUTSCENE_RUN:
+            player.draw(game_surface)
 
         if state == STATE_DIALOG and epilogue_index < len(EPILOGUE):
             speaker = EPILOGUE[epilogue_index][0]
