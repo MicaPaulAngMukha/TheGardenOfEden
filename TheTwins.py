@@ -115,6 +115,13 @@ try:
 except:
     heart_full = heart_empty = None
 
+# ── Prayer Fragment sprite ────────────────────────────────────────────────────
+try:
+    prayer_fragment_sprite = pygame.image.load(resource_path("PrayerFragment.png")).convert_alpha()
+    prayer_fragment_sprite = pygame.transform.scale(prayer_fragment_sprite, (16, 16))
+except Exception:
+    prayer_fragment_sprite = None
+
 # ── Constants ─────────────────────────────────────────────────────────────────
 PLAYER_SIZE    = 24
 MAX_LIVES      = 3
@@ -743,10 +750,17 @@ def draw_scene(surface, walls,
             dist_x = abs(player.rect.centerx - frag["rect"].centerx)
             dist_y = abs(player.rect.centery - frag["rect"].centery)
             if dist_x < T * 4 and dist_y < T * 4:
-                pygame.draw.circle(surface, FRAG_GLOW, frag["rect"].center, (T // 2))
-                pygame.draw.circle(surface, FRAG_COL, frag["rect"].center, (T // 2) - 2)
-                pygame.draw.circle(surface, WHITE,
-                                   (frag["rect"].centerx - 2, frag["rect"].centery - 2), 2)
+                if prayer_fragment_sprite:
+                    # Draw prayer fragment sprite centered on the position
+                    sprite_x = frag["rect"].centerx - prayer_fragment_sprite.get_width() // 2
+                    sprite_y = frag["rect"].centery - prayer_fragment_sprite.get_height() // 2
+                    surface.blit(prayer_fragment_sprite, (sprite_x, sprite_y))
+                else:
+                    # Fallback to drawing circles if sprite fails to load
+                    pygame.draw.circle(surface, FRAG_GLOW, frag["rect"].center, (T // 2))
+                    pygame.draw.circle(surface, FRAG_COL, frag["rect"].center, (T // 2) - 2)
+                    pygame.draw.circle(surface, WHITE,
+                                       (frag["rect"].centerx - 2, frag["rect"].centery - 2), 2)
 
     # ── Banishment tile prompts ──
     if abel_ban_tile and not abel_banished:
@@ -1437,8 +1451,8 @@ def god_main(god, lives=MAX_LIVES):
             if door_open:
                 exit_zone = pygame.Rect(0, 0, WIDTH, 4 * T)
                 if player.rect.colliderect(exit_zone):
-                    import TheTwins
-                    TheTwins.god_main(god, player.lives)
+                    import TheNaga
+                    TheNaga.god_main(god, player.lives)
                     return
 
         # ── Draw ──────────────────────────────────────────────────────────────

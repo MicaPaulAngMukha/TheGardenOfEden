@@ -91,6 +91,13 @@ try:
 except Exception:
     boss_frames = []
 
+# ── Apple sprite ──────────────────────────────────────────────────────────────
+try:
+    apple_sprite = pygame.image.load(resource_path("apple.png")).convert_alpha()
+    apple_sprite = pygame.transform.scale(apple_sprite, (16, 16))  # Scale to appropriate size
+except Exception:
+    apple_sprite = None
+
 # ── Constants ─────────────────────────────────────────────────────────────────
 PLAYER_SIZE        = 24
 MAX_LIVES          = 3
@@ -411,6 +418,15 @@ class Player:
         draw_x = self.rect.centerx - frame.get_width()  // 2
         draw_y = self.rect.centery - frame.get_height() // 2
         surface.blit(frame, (draw_x, draw_y))
+        if self.has_apple and apple_sprite:
+            # Draw apple sprite above player's head
+            apple_x = self.rect.centerx - apple_sprite.get_width() // 2
+            apple_y = self.rect.top - apple_sprite.get_height() - 4
+            surface.blit(apple_sprite, (apple_x, apple_y))
+        elif self.has_apple:
+            # Fallback to drawing circle if sprite fails to load
+            pygame.draw.circle(surface, (200, 40, 40),
+                               (self.rect.centerx, self.rect.top - 8), 5)
         if self.has_apple:
             pygame.draw.circle(surface, (200, 40, 40),
                                (self.rect.centerx, self.rect.top - 8), 5)
@@ -647,9 +663,14 @@ def draw_scene(surface, player, god, lightning_bolts,
     # ── Apple on ground ───────────────────────────────────────────────────────
     if apple_on_ground and apple_pos:
         ax, ay = apple_pos
-        pygame.draw.circle(draw_surf, (200,  40,  40), (ax, ay),  6)
-        pygame.draw.circle(draw_surf, (240,  80,  80), (ax - 1, ay - 2), 3)
-        pygame.draw.line(  draw_surf, ( 80, 140,  40), (ax, ay - 6), (ax + 3, ay - 10), 2)
+        if apple_sprite:
+            # Draw the apple sprite centered on the position
+            draw_surf.blit(apple_sprite, (ax - apple_sprite.get_width() // 2, ay - apple_sprite.get_height() // 2))
+        else:
+            # Fallback to drawing circles if sprite fails to load
+            pygame.draw.circle(draw_surf, (200,  40,  40), (ax, ay),  6)
+            pygame.draw.circle(draw_surf, (240,  80,  80), (ax - 1, ay - 2), 3)
+            pygame.draw.line(  draw_surf, ( 80, 140,  40), (ax, ay - 6), (ax + 3, ay - 10), 2)
 
     # ── Door kick UI (god phase) ──────────────────────────────────────────────
     if god_spawned and not door_open and door_rects:

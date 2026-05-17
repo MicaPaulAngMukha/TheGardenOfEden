@@ -59,6 +59,13 @@ try:
 except Exception:
     key_img = None
 
+# ── Hammer sprite ─────────────────────────────────────────────────────────────
+try:
+    hammer_sprite = pygame.image.load(resource_path("Hammer.png")).convert_alpha()
+    hammer_sprite = pygame.transform.scale(hammer_sprite, (16, 16))
+except Exception:
+    hammer_sprite = None
+
 # ── Statue image ──────────────────────────────────────────────────────────────
 try:
     _statue_raw = pygame.image.load(os.path.join(BASE_DIR, "Statue.png")).convert_alpha()
@@ -399,7 +406,11 @@ class Player:
         draw_x = self.rect.centerx - frame.get_width()  // 2
         draw_y = self.rect.centery - frame.get_height() // 2
         surface.blit(frame, (draw_x, draw_y))
-        if self.has_hammer:
+        if self.has_hammer and hammer_sprite:
+            # Draw hammer sprite next to player
+            surface.blit(hammer_sprite, (self.rect.right + 3, self.rect.top))
+        elif self.has_hammer:
+            # Fallback to drawing rectangle if sprite fails to load
             pygame.draw.rect(surface, HAMMER_COL,
                              pygame.Rect(self.rect.right + 3, self.rect.top, 6, 10),
                              border_radius=2)
