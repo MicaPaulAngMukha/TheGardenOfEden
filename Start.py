@@ -6,6 +6,7 @@ import pytmx
 import os
 from display_scaler import DisplayScaler
 from resource_path import resource_path
+from key_system import KeyEntity, spawn_keys, RazielDialoguePool
 
 # --- Init ---
 pygame.init()
@@ -111,10 +112,98 @@ DIALOGS = {
         ("Raziel", "... Who knows what's lurking in there."),
         ("Raziel", "There are worse things than an angel's wrath. Don't get your feathers in a twist."),
     ],
+    "raziel_key_intro": [
+        ("Raziel", "Eden has many keys."),
+        ("Raziel", "Some open doors, others... well, they open different kinds of doors."),
+    ],
+    "raziel_key_gold": [
+        ("Raziel", "That golden key? Yeah, that's mine."),
+        ("Raziel", "I dropped it somewhere around here."),
+        ("Raziel", "Nothing special about it, really. Just... shiny."),
+    ],
+    "raziel_key_bronze": [
+        ("Raziel", "The bronze key has a story."),
+        ("Raziel", "A young cherub once dropped it while guarding the tree of knowledge."),
+        ("Raziel", "Got trapped in Eden for centuries because of it."),
+        ("Raziel", "That cherub? You might meet them. They're still here, guarding."),
+    ],
+    "raziel_key_rusted": [
+        ("Raziel", "That rusted key belonged to a seraph."),
+        ("Raziel", "The one who banished your parents from Eden."),
+        ("Raziel", "Dropped it in the chaos. Never bothered to pick it up."),
+        ("Raziel", "Guess they figured humanity wouldn't be back."),
+    ],
+    "raziel_key_divine": [
+        ("Raziel", "The divine key... that one's different."),
+        ("Raziel", "Belonged to the watchers. You know, the ones who..."),
+        ("Raziel", "...had relations with human women."),
+        ("Raziel", "They were banished. Left their keys behind."),
+        ("Raziel", "I wouldn't touch it if I were you. But you're not me."),
+    ],
 }
+
+# Narrator text for each key type
+KEY_NARRATOR_TEXT = {
+    "bronze": "You find a bronze key. It feels light as a feather in your hand.",
+    "gold": "A golden key.. It looks brand new. It could be Raziel's.",
+    "rusted": "You find an old key. It's rusted and you're not even sure if it will work anymore.",
+    "divine": "The key blinks at you. You feel an overwhelming presence..."
+}
+
+
+def check_key_discovery(player, keys):
+    """
+    Check if player is near an undiscovered key.
+    Returns the key if discovered, None otherwise.
+    
+    Args:
+        player: The Player object
+        keys: List of KeyEntity objects in the world
+    
+    Returns:
+        KeyEntity if discovered, None otherwise
+    """
+    for key in keys:
+        if not key.discovered and key.near_player(player.rect):
+            key.discovered = True
+            return key
+    return None
+
+
+def handle_key_swap(player, new_key, keys_in_world):
+    """
+    Handle key swapping logic when player picks up a new key.
+    
+    Args:
+        player: The Player object
+        new_key: The KeyEntity being picked up
+        keys_in_world: List of all keys currently in the world
+    
+    Returns:
+        None
+    """
+    # Validate new_key is in world
+    if new_key not in keys_in_world:
+        print(f"Warning: Attempted to pick up key not in world")
+        return
+    
+    # Remove new key from world
+    keys_in_world.remove(new_key)
+    
+    # Get old key (if any)
+    old_key = player.pickup_key(new_key)
+    
+    # If there was an old key, drop it at player's location
+    if old_key is not None:
+        old_key.rect.center = player.rect.center
+        old_key.discovered = False
+        keys_in_world.append(old_key)
+
 
 STATE_ANGEL_DIALOG  = "angel_dialog"
 STATE_GATE_DIALOG = "gate_dialog"
+STATE_KEY_DISCOVERY = "key_discovery"
+STATE_KEY_PICKUP_PROMPT = "key_pickup_prompt"
 
 # --- Layout constants ---
 MAP_LEFT   = 0
@@ -239,7 +328,7 @@ class Player:
         self.lives = 3
         self.rect = pygame.Rect(WIDTH // 2 - self.SIZE // 2,
                                 MAP_BOTTOM - 60, self.SIZE, self.SIZE)
-        self.has_key = False
+        self.held_key = None  # KeyEntity | None - replaces has_key boolean
         self.sprites = PlayerSprites(scale=1)
         self._moving = False
 
@@ -275,18 +364,52 @@ class Player:
                 if dy > 0: self.rect.bottom = b["rect"].top
                 if dy < 1: self.rect.top    = b["rect"].bottom
 
-        if not self.has_key:
+        if not self.has_key():
             if self.rect.top < GATE_Y + 5:
                 self.rect.top = GATE_Y + 5
 
     def _clamp(self):
         self.rect.clamp_ip(pygame.Rect(MAP_LEFT, MAP_TOP, MAP_W, MAP_H))
 
+    def pickup_key(self, key):
+        """
+        Pick up a key. If already holding a key, return the old key.
+        
+        Args:
+            key: The KeyEntity to pick up
+        
+        Returns:
+            The previously held key (for swapping), or None
+        """
+        old_key = self.held_key
+        self.held_key = key
+        return old_key
+    
+    def drop_key(self):
+        """
+        Drop the currently held key.
+        
+        Returns:
+            The dropped key, or None if not holding a key
+        """
+        dropped = self.held_key
+        self.held_key = None
+        return dropped
+    
+    def has_key(self):
+        """
+        Check if player is holding any key.
+        
+        Returns:
+            True if holding a key, False otherwise
+        """
+        return self.held_key is not None
+
     def check_key_pickup(self, bushes):
         for b in bushes:
             if b["has_key"] and self.rect.inflate(10, 10).colliderect(b["rect"]):
                 b["has_key"] = False
-                self.has_key = True
+                self.held_key = True  # Note: This is legacy code, will be replaced by new key system
                 return True
         return False
 
@@ -304,7 +427,7 @@ class Player:
         draw_x = self.rect.centerx - frame.get_width() // 2
         draw_y = self.rect.centery - frame.get_height() // 2
         surface.blit(frame, (draw_x, draw_y))
-        if self.has_key:
+        if self.has_key():
             surface.blit(key_img, (self.rect.centerx - 8, self.rect.top - 20))
 
 class Typewriter:
@@ -805,6 +928,12 @@ def main():
     chase_paused = False
     raziel_cooldown = 0
     
+    # Key system state
+    keys_in_world = []
+    keys_spawned = False
+    discovered_key = None
+    raziel_dialogue_pool = RazielDialoguePool()
+    
     # Cutscene variables
     cutscene_walk_target_y = HEIGHT // 2 + 50  # Stop roughly in the middle
     cutscene_dialog = DIALOGS["opening_cutscene"]
@@ -849,6 +978,25 @@ def main():
 
                 elif state == STATE_PICKUP:
                     if event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                        state = STATE_EXPLORE
+
+                elif state == STATE_KEY_DISCOVERY:
+                    if event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                        if not typewriter.done:
+                            typewriter.skip()
+                        else:
+                            state = STATE_KEY_PICKUP_PROMPT
+
+                elif state == STATE_KEY_PICKUP_PROMPT:
+                    if event.key == pygame.K_y:
+                        # Accept key pickup - call handle_key_swap to add key to inventory
+                        if discovered_key is not None:
+                            handle_key_swap(player, discovered_key, keys_in_world)
+                            discovered_key = None
+                        state = STATE_EXPLORE
+                    elif event.key == pygame.K_n:
+                        # Decline key pickup
+                        discovered_key = None
                         state = STATE_EXPLORE
 
 
@@ -941,7 +1089,7 @@ def main():
                         pygame.quit();
                         sys.exit()
 
-        if state in (STATE_ANGEL_DIALOG, STATE_GATE_DIALOG):
+        if state in (STATE_ANGEL_DIALOG, STATE_GATE_DIALOG, STATE_KEY_DISCOVERY):
             typewriter.update()
 
         # Cutscene: Player walks upward automatically
@@ -1014,7 +1162,7 @@ def main():
             # Raziel roaming interaction
             elif raziel.roaming and raziel.near_player(player.rect) \
                     and raziel_cooldown == 0:
-                angel_dialog = DIALOGS["raziel_roaming"]
+                angel_dialog = raziel_dialogue_pool.get_next_dialogue(DIALOGS)
                 raziel.seen_dialogs.add("raziel_roaming")
                 raziel_cooldown = 300
                 dialog_index = 0
@@ -1050,9 +1198,21 @@ def main():
             if mikhail.chasing and not key_spawned:
                 random.choice(bushes)["has_key"] = True
                 key_spawned = True
+            
+            # Spawn keys when Mikhail chase starts (new key system)
+            if mikhail.chasing and not keys_spawned:
+                keys_in_world = spawn_keys()
+                keys_spawned = True
+            
+            # Check for key discovery
+            if keys_spawned and discovered_key is None:
+                discovered_key = check_key_discovery(player, keys_in_world)
+                if discovered_key is not None:
+                    state = STATE_KEY_DISCOVERY
+                    typewriter.set_text(KEY_NARRATOR_TEXT[discovered_key.key_type])
 
             # Key pickup and gate logic
-            if not player.has_key:
+            if not player.has_key():
                 if player.check_key_pickup(bushes):
                     state = STATE_PICKUP
 
@@ -1071,9 +1231,14 @@ def main():
                     state = STATE_GATE_DIALOG
 
             elif player.near_gate():
-                state = STATE_PROMPT if player.has_key else STATE_LOCKED
+                state = STATE_PROMPT if player.has_key() else STATE_LOCKED
 
         draw_map(game_surface, player, gate_open)
+        
+        # Draw keys in world
+        for key in keys_in_world:
+            game_surface.blit(key.sprite, key.rect)
+        
         mikhail.draw(game_surface)
         raziel.draw(game_surface)
         player.draw(game_surface)
@@ -1099,6 +1264,11 @@ def main():
                 ["You found a hidden key!",
                  "It might open something nearby..."],
                 [("Enter", "OK")])
+        elif state == STATE_KEY_PICKUP_PROMPT:
+            draw_dialog(game_surface,
+                ["Pick it up?"],
+                [("Y", "Yes"),
+                 ("N", "No")])
 
         if state == STATE_HIT:
             draw_dialog(game_surface,
@@ -1115,6 +1285,10 @@ def main():
         if state in (STATE_ANGEL_DIALOG, STATE_GATE_DIALOG) and dialog_index < len(angel_dialog):
             speaker, _ = angel_dialog[dialog_index]
             draw_angel_dialog(game_surface, speaker, typewriter)
+        
+        # Draw narrator dialog for key discovery
+        if state == STATE_KEY_DISCOVERY:
+            draw_narrator_dialog(game_surface, typewriter)
         
         # Draw cutscene narrator dialog
         if state == STATE_CUTSCENE_DIALOG and cutscene_dialog_index < len(cutscene_dialog):

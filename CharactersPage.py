@@ -65,7 +65,7 @@ CHARACTERS = [
     {
         "name": "The Guardian",
         "image": "Sprites/Guardian/GuardianFull.png",
-        "description": "A cherubim sent down to guard the tree of knowledge. Much more strict than Mikhail, works under him. Still has mercy to humans, give them a chance to walk away from the path of sin."
+        "description": "A young cherubim sent down to guard the tree of knowledge. Once dropped a bronze key and got trapped in Eden for centuries. Much more strict than Mikhail, works under him. Still has mercy to humans, gives them a chance to walk away from the path of sin."
     },
     {
         "name": "--. --- -..",
