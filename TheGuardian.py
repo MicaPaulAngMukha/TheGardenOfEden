@@ -9,6 +9,8 @@ import TheStatues
 import TheGarden
 from display_scaler import DisplayScaler
 from resource_path import resource_path
+from difficulty_manager import DifficultyManager
+from god_entity import GodEntity, Lightning
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -84,14 +86,14 @@ PLAYER_SPAWN = (WIDTH // 2, 40)
 GUARD_SPEED_NORMAL = 1.8
 GUARD_SPEED_LIGHT  = 3.4
 GUARD_SPEED_LOUD   = 5.0
-GUARD_SPEED_CHASE  = 3.0
+GUARD_SPEED_CHASE_BASE  = 3.0  # Base chase speed, will be modified by difficulty
 
 LIGHT_RADIUS      = 70
 INVINCIBLE_FRAMES = 90
 TYPEWRITER_SPEED  = 2
 
-PULSE_DARK_DURATION  = 300   # frames of darkness (5 seconds)
-PULSE_LIGHT_DURATION = 180   # frames of light (3 seconds)
+PULSE_DARK_DURATION_BASE  = 300   # frames of darkness (5 seconds) - baseline
+PULSE_LIGHT_DURATION_BASE = 180   # frames of light (3 seconds) - baseline
 PULSE_TRANSITION     = 40    # frames to fade in/out
 
 WALL_LAYERS = {"MazeWalls", "Walls", "WallsBack", "Walls_Side", "walls_exit"}
@@ -785,6 +787,22 @@ def main():
     player   = Player()
     guardian = Guardian()
 
+    # Initialize difficulty system
+    difficulty_mgr = DifficultyManager(player, "TheGuardian")
+    
+    # Apply difficulty modifiers
+    disable_enrage = difficulty_mgr.get_modifier("disable_enrage", False)
+    PULSE_LIGHT_DURATION = difficulty_mgr.get_modifier("light_phase_duration", PULSE_LIGHT_DURATION_BASE)
+    PULSE_DARK_DURATION = difficulty_mgr.get_modifier("dark_phase_duration", PULSE_DARK_DURATION_BASE)
+    guardian_chase_speed_multiplier = difficulty_mgr.get_modifier("guardian_chase_speed_multiplier", 1.0)
+    GUARD_SPEED_CHASE = GUARD_SPEED_CHASE_BASE * guardian_chase_speed_multiplier
+    
+    # Spawn God if God Mode is active
+    god = None
+    lightning_bolts = []
+    if difficulty_mgr.should_spawn_god():
+        god = GodEntity()
+
     darkness_active  = False
     gate_open        = False
     entrance_closed  = False
@@ -870,6 +888,9 @@ def main():
 
         # ── Game logic ────────────────────────────────────────────────────────
         if state == STATE_PLAY:
+            # Update difficulty manager
+            difficulty_mgr.update()
+            
             # Build the effective wall list each frame
             active_walls = walls + (walls_exit if not exit_unlocked else [])
 
@@ -925,13 +946,13 @@ def main():
                             player.has_key = True
                             exit_unlocked = True  # ← this is all you need
                         if b["layer_type"] == "dense":
-                            guardian.alert_speed = GUARD_SPEED_LOUD
-                            alert_timer = 180
-                            last_known_pos = player.rect.center  # ← add
+                            guardian.alert_speed = GUARD_SPEED_LOUD if not disable_enrage else None
+                            alert_timer = 180 if not disable_enrage else 0
+                            last_known_pos = player.rect.center if not disable_enrage else None
                         else:
-                            guardian.alert_speed = GUARD_SPEED_LIGHT
-                            alert_timer = 120
-                            last_known_pos = player.rect.center  # ← add
+                            guardian.alert_speed = GUARD_SPEED_LIGHT if not disable_enrage else None
+                            alert_timer = 120 if not disable_enrage else 0
+                            last_known_pos = player.rect.center if not disable_enrage else None
 
             if alert_timer > 0:
                 alert_timer -= 1
@@ -994,6 +1015,30 @@ def main():
                 if player_has_moved:
                     guardian.update_roam(wall_set)
 
+            # Update God entity if spawned
+            if god:
+                god.update(player.rect)
+                
+                # Check God smite range for instant-kill
+                if god.in_smite_range(player.rect) and player.inv_timer <= 0:
+                    player.lives = 0
+                    state = STATE_GAME_OVER
+                
+                # Spawn lightning bolts from God
+                new_bolts = god.try_spawn_bolts(player.rect)
+                lightning_bolts.extend(new_bolts)
+            
+            # Update lightning bolts
+            for bolt in lightning_bolts[:]:
+                bolt.update()
+                if bolt.is_done():
+                    lightning_bolts.remove(bolt)
+                elif bolt.hits(player.rect) and player.inv_timer <= 0:
+                    player.lives -= 1
+                    player.inv_timer = INVINCIBLE_FRAMES
+                    if player.lives <= 0:
+                        state = STATE_GAME_OVER
+
             if darkness_active and guardian.touches(player.rect) and player.inv_timer <= 0:
                 player.lives -= 1
                 player.inv_timer = INVINCIBLE_FRAMES
@@ -1007,6 +1052,18 @@ def main():
         # ── Draw ──────────────────────────────────────────────────────────────
         draw_scene(game_surface, player, guardian, bush_tiles,
                    gate_open, darkness_active, entrance_closed, pulse_alpha)
+
+        # Draw lightning bolts
+        if god:
+            for bolt in lightning_bolts:
+                bolt.draw(game_surface)
+        
+        # Draw God entity
+        if god:
+            god.draw(game_surface)
+        
+        # Draw difficulty indicator
+        difficulty_mgr.draw_indicator(game_surface, font_md)
 
         if state in (STATE_INTRO, STATE_WARNING, STATE_DARKNESS_DLG):
             draw_guardian_dialog(game_surface, typewriter)

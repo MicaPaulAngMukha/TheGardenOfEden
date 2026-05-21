@@ -9,6 +9,8 @@ import TheGuardian
 import TheGarden
 from display_scaler import DisplayScaler
 from resource_path import resource_path
+from difficulty_manager import DifficultyManager
+from god_entity import GodEntity
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -639,6 +641,7 @@ class Cain(Twin):
         self.throw_cooldown = CAIN_THROW_COOLDOWN // 2
         self.throw_range    = CAIN_THROW_RANGE_NORMAL
         self.sprites        = CainSprites(scale=1)
+        self.cooldown_multiplier = 1.0  # Store multiplier for difficulty system
 
     def enrage(self):
         self.enraged     = True
@@ -665,7 +668,9 @@ class Cain(Twin):
         if self.throw_cooldown > 0:
             return None
         if dist_tiles <= self.throw_range:
-            self.throw_cooldown = CAIN_THROW_COOLDOWN_ENRAGED if self.enraged else CAIN_THROW_COOLDOWN
+            # Apply cooldown with difficulty multiplier
+            base_cooldown = CAIN_THROW_COOLDOWN_ENRAGED if self.enraged else CAIN_THROW_COOLDOWN
+            self.throw_cooldown = int(base_cooldown * self.cooldown_multiplier)
             return Spear(self.rect.centerx, self.rect.centery,
                          player_rect.centerx, player_rect.centery)
         return None
@@ -965,8 +970,32 @@ def main():
     pygame.mixer.music.play(-1)
 
     player  = Player()
+    
+    # Initialize difficulty system
+    difficulty_mgr = DifficultyManager(player, "TheTwins")
+    
+    # Apply difficulty modifiers to Abel speed
+    abel_speed = difficulty_mgr.get_modifier("abel_speed", ABEL_SPEED_NORMAL)
     abel = Abel((5, 7))
+    abel.speed = abel_speed
+    
+    # Apply difficulty modifiers to Cain
     cain = Cain((55, 7))
+    cain_throw_cooldown_mult = difficulty_mgr.get_modifier("cain_throw_cooldown_multiplier", 1.0)
+    cain.cooldown_multiplier = cain_throw_cooldown_mult
+    cain.throw_cooldown = int(CAIN_THROW_COOLDOWN * cain_throw_cooldown_mult) // 2
+    cain_throw_range = difficulty_mgr.get_modifier("cain_throw_range", CAIN_THROW_RANGE_NORMAL)
+    cain.throw_range = cain_throw_range
+    
+    # Check for instant-kill modifier
+    abel_instant_kill = difficulty_mgr.get_modifier("abel_instant_kill", False)
+    
+    # Spawn God if needed
+    god = None
+    lightning_bolts = []
+    if difficulty_mgr.should_spawn_god():
+        god = GodEntity()
+    
     print(cain.sprites.anims["walk"]["down"].speed)
     spears  = []
 
@@ -1095,6 +1124,9 @@ def main():
 
         # ── Game logic ───────────────────────────────────────────────────────
         if state == STATE_PLAY:
+            # Update difficulty manager
+            difficulty_mgr.update()
+            
             keys = pygame.key.get_pressed()
             hit_wall = player.move(keys, solid)
 
@@ -1134,6 +1166,32 @@ def main():
             # Invincibility countdown
             if inv_timer > 0:
                 inv_timer -= 1
+            
+            # Update God entity if spawned
+            if god:
+                god.update(player.rect)
+                
+                # Check God smite range for instant-kill
+                if god.in_smite_range(player.rect) and inv_timer <= 0:
+                    player.lives = 0
+                    state = STATE_GAME_OVER
+                
+                # Spawn lightning bolts from God
+                new_bolts = god.try_spawn_bolts(player.rect)
+                lightning_bolts.extend(new_bolts)
+            
+            # Update lightning bolts
+            for bolt in lightning_bolts[:]:
+                done = bolt.update()
+                if bolt.hits(player.rect) and inv_timer <= 0:
+                    player.lives -= 1
+                    inv_timer = INVINCIBLE_FRAMES
+                    if player.lives <= 0:
+                        state = STATE_GAME_OVER
+                    else:
+                        state = STATE_HIT
+                if done:
+                    lightning_bolts.remove(bolt)
 
             # Cain update
             if not cain.banished:
@@ -1191,9 +1249,14 @@ def main():
                         state = STATE_ABEL_CAUGHT
                     else:
                         if inv_timer <= 0:
-                            player.lives -= 1
-                            inv_timer = INVINCIBLE_FRAMES
-                            state = STATE_GAME_OVER if player.lives <= 0 else STATE_HIT
+                            # Check for instant-kill modifier
+                            if abel_instant_kill:
+                                player.lives = 0
+                                state = STATE_GAME_OVER
+                            else:
+                                player.lives -= 1
+                                inv_timer = INVINCIBLE_FRAMES
+                                state = STATE_GAME_OVER if player.lives <= 0 else STATE_HIT
 
             # Hints
             if abel_frags >= FRAGMENTS_NEEDED and not abel_banished \
@@ -1221,6 +1284,15 @@ def main():
                    hint, entrance_closed,
                    cain_frags, abel_frags,
                    abel_ban_tile, cain_ban_tile)
+        
+        # Draw lightning bolts from God
+        if god:
+            for bolt in lightning_bolts:
+                bolt.draw(game_surface)
+            god.draw(game_surface)
+        
+        # Draw difficulty indicator
+        difficulty_mgr.draw_indicator(game_surface, font_md)
 
         if state == STATE_ABEL_CAUGHT:
             draw_dialog(game_surface,

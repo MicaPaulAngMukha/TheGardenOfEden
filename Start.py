@@ -1235,9 +1235,10 @@ def main():
 
         draw_map(game_surface, player, gate_open)
         
-        # Draw keys in world
+        # Draw keys in world (only if discovered)
         for key in keys_in_world:
-            game_surface.blit(key.sprite, key.rect)
+            if key.discovered:
+                game_surface.blit(key.sprite, key.rect)
         
         mikhail.draw(game_surface)
         raziel.draw(game_surface)

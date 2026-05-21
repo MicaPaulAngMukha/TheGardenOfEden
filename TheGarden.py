@@ -6,6 +6,7 @@ import random
 import pytmx
 from display_scaler import DisplayScaler
 from resource_path import resource_path
+from difficulty_manager import DifficultyManager
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -496,11 +497,15 @@ class Lightning:
 class God:
     SIZE = 20
 
-    def __init__(self):
+    def __init__(self, smite_range=GOD_SMITE_RANGE):
         # Spawns from the top-centre of the map
         self.rect       = pygame.Rect(WIDTH // 2 - self.SIZE // 2, -80,
                                       self.SIZE, self.SIZE)
-        self.bolt_timer = LIGHTNING_COOLDOWN // 2
+        self.speed = GOD_SPEED
+        self.lightning_cooldown = LIGHTNING_COOLDOWN
+        self.lightning_count = LIGHTNING_COUNT
+        self.bolt_timer = self.lightning_cooldown // 2
+        self.smite_range = smite_range
 
         self.anim_index = 0
         self.anim_timer = 0
@@ -510,22 +515,22 @@ class God:
         dx = player_rect.centerx - self.rect.centerx
         dy = player_rect.centery - self.rect.centery
         dist = max(1, math.sqrt(dx * dx + dy * dy))
-        self.rect.x += (dx / dist) * GOD_SPEED
-        self.rect.y += (dy / dist) * GOD_SPEED
+        self.rect.x += (dx / dist) * self.speed
+        self.rect.y += (dy / dist) * self.speed
         # intentionally no wall collision — God passes through everything
 
     def in_smite_range(self, player_rect):
         dx = self.rect.centerx - player_rect.centerx
         dy = self.rect.centery - player_rect.centery
-        return math.sqrt(dx * dx + dy * dy) < GOD_SMITE_RANGE
+        return math.sqrt(dx * dx + dy * dy) < self.smite_range
 
     def try_spawn_bolts(self, player_rect):
         self.bolt_timer -= 1
         if self.bolt_timer > 0:
             return []
-        self.bolt_timer = LIGHTNING_COOLDOWN
+        self.bolt_timer = self.lightning_cooldown
         bolts = []
-        for _ in range(LIGHTNING_COUNT):
+        for _ in range(self.lightning_count):
             tx = player_rect.centerx + random.randint(-130, 130)
             ty = player_rect.centery + random.randint(-90,  90)
             tx = max(T * 2, min(WIDTH  - T * 2, tx))
@@ -850,7 +855,23 @@ def main():
         pass
 
     player          = Player()
-    god             = God()
+    
+    # Initialize difficulty manager
+    difficulty_mgr = DifficultyManager(player, "TheGarden")
+    
+    # Apply difficulty modifiers to God parameters
+    god_speed = difficulty_mgr.get_modifier("god_speed_multiplier", 1.0) * GOD_SPEED
+    lightning_cooldown = int(LIGHTNING_COOLDOWN * difficulty_mgr.get_modifier("lightning_cooldown_multiplier", 1.0))
+    lightning_count = difficulty_mgr.get_modifier("lightning_count", LIGHTNING_COUNT)
+    god_smite_range = GOD_SMITE_RANGE * difficulty_mgr.get_modifier("god_smite_cooldown_multiplier", 1.0)
+    
+    god             = God(smite_range=god_smite_range)
+    # Override God's speed and cooldown with difficulty modifiers
+    god.speed = god_speed
+    god.bolt_timer = lightning_cooldown // 2
+    god.lightning_cooldown = lightning_cooldown
+    god.lightning_count = lightning_count
+    
     lightning_bolts = []
     shake           = ScreenShake()
 
@@ -861,6 +882,8 @@ def main():
     god_spawned       = False
     inv_timer         = 0
 
+    # Apply tree_shakes_required modifier
+    tree_shakes_needed = difficulty_mgr.get_modifier("tree_shakes_required", TREE_SHAKE_NEEDED)
     tree_shakes       = 0
     apple_on_ground   = False
     apple_pos         = None
@@ -906,7 +929,7 @@ def main():
                         if player.near_point(tx, ty, radius=55) and not apple_on_ground:
                             tree_shakes += 1
                             shake.start(18, strength=4)
-                            if tree_shakes >= TREE_SHAKE_NEEDED:
+                            if tree_shakes >= tree_shakes_needed:
                                 apple_on_ground = True
                                 apple_pos       = (tx, ty + 24)
                         elif apple_on_ground and apple_pos:
@@ -969,6 +992,9 @@ def main():
         # ── Typewriter tick ───────────────────────────────────────────────
         if state in (STATE_CUTSCENE, STATE_APPLE_DIALOG, STATE_EPILOGUE):
             typewriter.update()
+        
+        # ── Update difficulty manager ─────────────────────────────────────
+        difficulty_mgr.update()
 
         # ── Eating sequence ───────────────────────────────────────────────
         if state == STATE_EATING:
@@ -1062,6 +1088,9 @@ def main():
                    apple_on_ground, apple_pos,
                    red_flash_alpha, shake,
                    god_spawned)
+        
+        # ── Draw difficulty indicator ─────────────────────────────────────
+        difficulty_mgr.draw_indicator(game_surface, font_md)
 
         if state == STATE_CUTSCENE:
             draw_cutscene_line(game_surface, "NARRATE", typewriter)

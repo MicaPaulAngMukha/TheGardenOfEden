@@ -8,6 +8,8 @@ import collections
 import TheGarden
 from display_scaler import DisplayScaler
 from resource_path import resource_path
+from difficulty_manager import DifficultyManager
+from god_entity import GodEntity, Lightning
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -733,6 +735,32 @@ def main():
     pulse_light_duration = PULSE_LIGHT_DURATION_DEFAULT
 
     player          = Player()
+    
+    # Initialize difficulty system
+    difficulty_mgr = DifficultyManager(player, "TheStatues")
+    
+    # Apply difficulty modifiers to pulse durations
+    light_modifier = difficulty_mgr.get_modifier("light_phase_duration")
+    if light_modifier is not None:
+        pulse_light_duration = light_modifier
+        PULSE_LIGHT_DURATION_DEFAULT = light_modifier
+    
+    dark_modifier = difficulty_mgr.get_modifier("dark_phase_duration")
+    if dark_modifier is not None:
+        pulse_dark_duration = dark_modifier
+        PULSE_DARK_DURATION_DEFAULT = dark_modifier
+    
+    # Apply statue speed multiplier
+    statue_speed_mult = difficulty_mgr.get_modifier("statue_speed_multiplier", 1.0)
+    for statue in statues:
+        statue.speed = STATUE_BASE_SPEED * statue_speed_mult
+    
+    # Spawn God if God Mode is active
+    god = None
+    lightning_bolts = []
+    if difficulty_mgr.should_spawn_god():
+        god = GodEntity()
+    
     darkness_active = False
     gate_open       = False
     entrance_closed = False
@@ -861,6 +889,9 @@ def main():
 
         # ── Gameplay ──────────────────────────────────────────────────────────
         if state == STATE_PLAY:
+            # Update difficulty manager
+            difficulty_mgr.update()
+            
             keys = pygame.key.get_pressed()
             player.move(keys, walls)
 
@@ -869,6 +900,31 @@ def main():
 
             if inv_timer        > 0: inv_timer        -= 1
             if player.inv_timer > 0: player.inv_timer -= 1
+            
+            # Update God entity if spawned
+            if god:
+                god.update(player.rect)
+                
+                # Check God smite range for instant-kill
+                if god.in_smite_range(player.rect) and inv_timer <= 0:
+                    player.lives = 0
+                    state = STATE_GAME_OVER
+                
+                # Spawn lightning bolts from God
+                new_bolts = god.try_spawn_bolts(player.rect)
+                lightning_bolts.extend(new_bolts)
+            
+            # Update lightning bolts
+            for bolt in lightning_bolts[:]:
+                done = bolt.update()
+                if bolt.hits(player.rect) and inv_timer <= 0:
+                    player.lives -= 1
+                    inv_timer = INVINCIBLE_FRAMES
+                    player.inv_timer = INVINCIBLE_FRAMES
+                    if player.lives <= 0:
+                        state = STATE_GAME_OVER
+                if done:
+                    lightning_bolts.remove(bolt)
 
             # ── Pulse ──
             pulse_timer += 1
@@ -968,6 +1024,18 @@ def main():
         draw_scene(game_surface, player, statues, hammer_pos, key_pos,
                    gate_open, darkness_active, entrance_closed,
                    pulse_alpha, is_light_phase)
+        
+        # Draw lightning bolts from God
+        if god:
+            for bolt in lightning_bolts:
+                bolt.draw(game_surface)
+        
+        # Draw God entity if spawned
+        if god:
+            god.draw(game_surface)
+        
+        # Draw difficulty indicator
+        difficulty_mgr.draw_indicator(game_surface, font_md)
 
         if state == STATE_CUTSCENE:
             tag, _, _ = CUTSCENE[cs_index]

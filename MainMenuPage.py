@@ -7,9 +7,22 @@ import os
 from Prologue import Prologue
 import CharactersPage
 from display_scaler import DisplayScaler
+from difficulty_config import validate_modifiers
 
 # --- Init ---
 pygame.init()
+
+# --- Startup Validation ---
+print("=== Garden of Eden - Difficulty System Validation ===")
+validation_errors = validate_modifiers()
+if validation_errors:
+    print("WARNING: Difficulty configuration validation failed!")
+    for error in validation_errors:
+        print(f"  - {error}")
+    print("Falling back to Normal Mode for all levels.")
+else:
+    print("✓ Difficulty configuration validated successfully.")
+print("=" * 50)
 WIDTH, HEIGHT = 793, 650
 screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
 pygame.display.set_caption("Garden of Eden")

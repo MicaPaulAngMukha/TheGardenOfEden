@@ -10,6 +10,8 @@ import TheTwins
 import math
 from display_scaler import DisplayScaler
 from resource_path import resource_path
+from difficulty_manager import DifficultyManager
+from god_entity import GodEntity
 
 pygame.init()
 WIDTH, HEIGHT = 793, 650
@@ -223,6 +225,7 @@ class Player:
     def __init__(self):
         self.lives = MAX_LIVES
         self.sprites = PlayerSprites(scale=1)
+        self.held_key = None  # Add held_key attribute for difficulty system
         self.reset()
 
     def reset(self):
@@ -311,7 +314,7 @@ class NagaSprites:
 class Naga:
     N_SEGS = 3
 
-    def __init__(self, spawn_tile):
+    def __init__(self, spawn_tile, speed=NAGA_SPEED):
         cx = spawn_tile[0] * T + T // 2
         cy = spawn_tile[1] * T + T // 2
         self.history = collections.deque(maxlen=HISTORY_LEN)
@@ -323,6 +326,7 @@ class Naga:
             self.history.append((px, py))
         self.sprites = NagaSprites(scale=0.4)    # ← add this line
         self.current_dir = "down"
+        self.speed = speed  # Store speed as instance variable
         # Path caching to fix performance issue
         self.cached_path = []
         self.path_recalc_timer = 0
@@ -408,7 +412,7 @@ class Naga:
 
         dx, dy = tx - hx, ty - hy
         dist = max(0.001, (dx ** 2 + dy ** 2) ** 0.5)
-        step = min(NAGA_SPEED, dist)
+        step = min(self.speed, dist)
 
         # ── Direction update ──────────────────────────────────────────────
         if abs(dx) > abs(dy):
@@ -708,7 +712,24 @@ def main():
     empty_tiles = [(x, y) for (x, y) in empty_tiles if (x, y) not in wall_set]
 
     player          = Player()
-    naga            = Naga(naga_tile)
+    
+    # Initialize difficulty system
+    difficulty_mgr = DifficultyManager(player, "TheNaga")
+    
+    # Apply difficulty modifiers
+    naga_speed = difficulty_mgr.get_modifier("naga_speed", 5)
+    item_spawn_multiplier = difficulty_mgr.get_modifier("item_spawn_multiplier", 1.0)
+    abel_speed = difficulty_mgr.get_modifier("abel_speed", 3.6)
+    cain_throw_cooldown_multiplier = difficulty_mgr.get_modifier("cain_throw_cooldown_multiplier", 1.0)
+    abel_instant_kill = difficulty_mgr.get_modifier("abel_instant_kill", False)
+    
+    # Spawn God if God Mode is active
+    god = None
+    lightning_bolts = []
+    if difficulty_mgr.should_spawn_god():
+        god = GodEntity()
+    
+    naga            = Naga(naga_tile, speed=naga_speed)
     green_active    = False
     red_active      = False
     state           = STATE_PLAY
@@ -786,6 +807,9 @@ def main():
         if state == STATE_PLAY:
             keys = pygame.key.get_pressed()
             player.move(keys, solid)
+            
+            # Update difficulty manager
+            difficulty_mgr.update()
 
             # Close entrance once player walks past row 4
             if not entrance_closed and player.rect.centery > 4 * T:
@@ -801,6 +825,32 @@ def main():
                 naga_freeze_timer -= 1
             elif intro_done:
                 naga.update(player.rect, walls, green_walls, red_walls, green_active, red_active)
+            
+            # Update God entity if spawned
+            if god:
+                god.update(player.rect)
+                
+                # Check God smite range for instant-kill
+                if god.in_smite_range(player.rect) and inv_timer <= 0:
+                    player.lives = 0
+                    player.trigger_hurt()
+                    state = STATE_GAME_OVER
+                
+                # Spawn lightning bolts from God
+                new_bolts = god.try_spawn_bolts(player.rect)
+                lightning_bolts.extend(new_bolts)
+            
+            # Update lightning bolts
+            for bolt in lightning_bolts[:]:
+                done = bolt.update()
+                if bolt.hits(player.rect) and inv_timer <= 0:
+                    player.lives -= 1
+                    player.trigger_hurt()
+                    inv_timer = INVINCIBLE_FRAMES
+                    if player.lives <= 0:
+                        state = STATE_GAME_OVER
+                if done:
+                    lightning_bolts.remove(bolt)
 
             if inv_timer <= 0:
                 if naga.head_rect().colliderect(player.rect):
@@ -812,7 +862,8 @@ def main():
 
             item_spawn_timer -= 1
             if item_spawn_timer <= 0:
-                item_spawn_timer = random.randint(300, 600)
+                base_spawn_time = random.randint(300, 600)
+                item_spawn_timer = int(base_spawn_time / item_spawn_multiplier)
                 if len(items_on_map) < 3 and empty_tiles:
                     spawn_col, spawn_row = random.choice(empty_tiles)
                     if player.lives < 3 and empty_tiles:
@@ -845,6 +896,15 @@ def main():
         draw_scene(game_surface, green_walls, red_walls,
                    green_active, red_active, player, naga, player.lives, hint,
                    GREEN_LEVER_POS, RED_LEVER_POS, items_on_map, entrance_closed)
+        
+        # Draw lightning bolts from God
+        if god:
+            for bolt in lightning_bolts:
+                bolt.draw(game_surface)
+            god.draw(game_surface)
+        
+        # Draw difficulty indicator
+        difficulty_mgr.draw_indicator(game_surface, font_md)
 
         if state == STATE_HIT:
             draw_dialog(game_surface,
