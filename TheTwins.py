@@ -1058,7 +1058,14 @@ def main(player_held_key=None):
                             if dialog_index < len(twins_dialog):
                                 typewriter.set_text(twins_dialog[dialog_index][1])
                             else:
-                                state = STATE_PLAY
+                                # Check if this was intro dialogue and God should spawn
+                                if twins_dialog == DIALOGS_TWINS["intro"] and god:
+                                    # Trigger God spawn dialogue
+                                    twins_dialog = DIALOGS_TWINS["god_spawn"]
+                                    dialog_index = 0
+                                    typewriter.set_text(twins_dialog[0][1])
+                                else:
+                                    state = STATE_PLAY
 
                 elif state == STATE_ABEL_CAUGHT:
                     if event.key in (pygame.K_RETURN, pygame.K_SPACE):

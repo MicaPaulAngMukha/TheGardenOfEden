@@ -66,6 +66,7 @@ class KeyEntity:
         self.rect = pygame.Rect(position[0], position[1], 16, 16)
         self.sprite = self._load_sprite()
         self.discovered = False
+        self.pickup_cooldown = 0  # Cooldown to prevent dialogue spam
     
     def _load_sprite(self) -> pygame.Surface:
         """

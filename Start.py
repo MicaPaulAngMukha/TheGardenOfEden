@@ -196,7 +196,8 @@ def handle_key_swap(player, new_key, keys_in_world):
     # If there was an old key, drop it at player's location
     if old_key is not None:
         old_key.rect.center = player.rect.center
-        old_key.discovered = False
+        old_key.discovered = True  # Keep it discovered so player can see it
+        old_key.pickup_cooldown = 180  # 3 seconds at 60 FPS
         keys_in_world.append(old_key)
 
 
@@ -1187,12 +1188,26 @@ def main():
                 keys_in_world = spawn_keys()
                 keys_spawned = True
             
+            # Decrement cooldown for all keys
+            if keys_spawned:
+                for key in keys_in_world:
+                    if key.pickup_cooldown > 0:
+                        key.pickup_cooldown -= 1
+            
             # Check for key discovery
             if keys_spawned and discovered_key is None:
                 discovered_key = check_key_discovery(player, keys_in_world)
                 if discovered_key is not None:
                     state = STATE_KEY_DISCOVERY
                     typewriter.set_text(KEY_NARRATOR_TEXT[discovered_key.key_type])
+            
+            # Check for key swap (colliding with discovered keys)
+            if keys_spawned and player.held_key is not None and discovered_key is None:
+                for key in keys_in_world:
+                    if key.discovered and key.pickup_cooldown == 0 and player.rect.colliderect(key.rect.inflate(20, 20)):
+                        discovered_key = key
+                        state = STATE_KEY_PICKUP_PROMPT
+                        break
 
             # Gate logic
             if gate_open:

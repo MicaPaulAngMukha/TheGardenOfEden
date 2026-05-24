@@ -118,6 +118,10 @@ DIALOGS = {
         ("Guardian", "Don't move."),
         ("Guardian", "Take a step further and you shall be punished."),
     ],
+    "god_spawn": [
+        ("Guardian", "My lord!"),
+        ("Guardian", "... I see. I shall capture them and bring them to justice."),
+    ],
     "warning": [
         ("Guardian", "You want to be difficult?"),
         ("Guardian", "So be it."),
@@ -133,6 +137,7 @@ STATE_INTRO        = "intro"
 STATE_PLAY         = "play"
 STATE_WARNING      = "warning"
 STATE_DARKNESS_DLG = "darkness_dlg"
+STATE_GOD_SPAWN    = "god_spawn"
 STATE_HIT          = "hit"
 STATE_GAME_OVER    = "gameover"
 STATE_WIN          = "win"
@@ -835,7 +840,7 @@ def main(player_held_key=None):
                 if event.key == pygame.K_ESCAPE:
                     pygame.quit(); sys.exit()
 
-                if state in (STATE_INTRO, STATE_WARNING, STATE_DARKNESS_DLG):
+                if state in (STATE_INTRO, STATE_WARNING, STATE_DARKNESS_DLG, STATE_GOD_SPAWN):
                     if event.key in (pygame.K_RETURN, pygame.K_SPACE):
                         if not typewriter.done:
                             typewriter.skip()
@@ -845,9 +850,19 @@ def main(player_held_key=None):
                                 typewriter.set_text(current_dialog[dialog_index][1])
                             else:
                                 if state == STATE_INTRO:
+                                    # Check if God should spawn
+                                    if god:
+                                        current_dialog = DIALOGS["god_spawn"]
+                                        dialog_index = 0
+                                        typewriter.set_text(current_dialog[0][1])
+                                        state = STATE_GOD_SPAWN
+                                    else:
+                                        state = STATE_PLAY
+                                        guardian.sprites.set_anim("idle")
+
+                                elif state == STATE_GOD_SPAWN:
                                     state = STATE_PLAY
                                     guardian.sprites.set_anim("idle")
-
 
                                 elif state == STATE_WARNING:
                                     guardian.sprites.set_anim("slash", "down")
@@ -887,7 +902,7 @@ def main(player_held_key=None):
                         pygame.quit(); sys.exit()
 
         # ── Typewriter tick ───────────────────────────────────────────────────
-        if state in (STATE_INTRO, STATE_WARNING, STATE_DARKNESS_DLG):
+        if state in (STATE_INTRO, STATE_WARNING, STATE_DARKNESS_DLG, STATE_GOD_SPAWN):
             typewriter.update()
 
         # ── Game logic ────────────────────────────────────────────────────────
@@ -1069,7 +1084,7 @@ def main(player_held_key=None):
         # Draw difficulty indicator
         difficulty_mgr.draw_indicator(game_surface, font_md)
 
-        if state in (STATE_INTRO, STATE_WARNING, STATE_DARKNESS_DLG):
+        if state in (STATE_INTRO, STATE_WARNING, STATE_DARKNESS_DLG, STATE_GOD_SPAWN):
             draw_guardian_dialog(game_surface, typewriter)
 
 
