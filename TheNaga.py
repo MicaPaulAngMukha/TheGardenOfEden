@@ -58,6 +58,10 @@ DIALOGS = {
         ("Naga", "Don't worry. I don't bite."),
         ("Narrator", "!!!"),
     ],
+    "god_spawn": [
+        ("Narrator", ".... ?"),
+        ("Narrator", "!!!!"),
+    ],
 }
 
 # ── Colors ───────────────────────────────────────────────────────────────────
@@ -657,6 +661,7 @@ STATE_LEVER_G   = "lever_g"
 STATE_LEVER_R   = "lever_r"
 STATE_INTRO_DIALOG = "intro_dialog"
 STATE_INTRO_WAIT   = "intro_wait"  # player frozen before dialog triggers
+STATE_GOD_SPAWN_DIALOG = "god_spawn_dialog"  # God spawn dialogue
 
 INVINCIBLE_FRAMES = 90
 
@@ -694,7 +699,7 @@ class Typewriter:
     def current(self):
         return self.full_text[:self.visible_chars]
 
-def main():
+def main(player_held_key=None):
     walls, green_walls, red_walls, GREEN_LEVER_POS, RED_LEVER_POS, naga_tile, empty_tiles = build_from_tmx()
 
     pygame.mixer.music.load(os.path.join(BASE_DIR, "audio", "Moonlight_DungeonTheme.wav"))
@@ -712,6 +717,9 @@ def main():
     empty_tiles = [(x, y) for (x, y) in empty_tiles if (x, y) not in wall_set]
 
     player          = Player()
+    # Restore held key from previous level
+    if player_held_key is not None:
+        player.held_key = player_held_key
     
     # Initialize difficulty system
     difficulty_mgr = DifficultyManager(player, "TheNaga")
@@ -790,7 +798,28 @@ def main():
                             if dialog_index < len(naga_dialog):
                                 typewriter.set_text(naga_dialog[dialog_index][1])
                             else:
-                                # Chase begins
+                                # Check if God should spawn
+                                if god:
+                                    # Trigger God spawn dialogue
+                                    naga_dialog = DIALOGS["god_spawn"]
+                                    dialog_index = 0
+                                    typewriter.set_text(naga_dialog[0][1])
+                                    state = STATE_GOD_SPAWN_DIALOG
+                                else:
+                                    # Chase begins
+                                    intro_done = True
+                                    state = STATE_PLAY
+                
+                elif state == STATE_GOD_SPAWN_DIALOG:
+                    if event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                        if not typewriter.done:
+                            typewriter.skip()
+                        else:
+                            dialog_index += 1
+                            if dialog_index < len(naga_dialog):
+                                typewriter.set_text(naga_dialog[dialog_index][1])
+                            else:
+                                # God descends, chase begins
                                 intro_done = True
                                 state = STATE_PLAY
 
@@ -926,10 +955,15 @@ def main():
                 [("E / Enter", "Yes")])
         elif state == STATE_WIN:
             pygame.mixer.music.fadeout(500)
-            TheTwins.main()
+            TheTwins.main(player.held_key)
             pygame.quit()
 
         if state == STATE_INTRO_DIALOG and dialog_index < len(naga_dialog):
+            speaker, _ = naga_dialog[dialog_index]
+            typewriter.update()
+            draw_naga_dialog(game_surface, speaker, typewriter)
+        
+        if state == STATE_GOD_SPAWN_DIALOG and dialog_index < len(naga_dialog):
             speaker, _ = naga_dialog[dialog_index]
             typewriter.update()
             draw_naga_dialog(game_surface, speaker, typewriter)

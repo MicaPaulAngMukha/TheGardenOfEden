@@ -71,6 +71,12 @@ DIALOGS_TWINS = {
         ("Abel",     "We're not leaving here and if you're going to force us.. "),
         ("Abel",     "We aren't going to give up what's rightfully ours without a fight. "),
     ],
+    "god_spawn": [
+        ("Cain",     "!!!"),
+        ("Abel",     "!!!"),
+        ("Cain",     "You-!"),
+        ("Abel",     "You dirty little traitor!"),
+    ],
     "first_fragment": [
         ("Narrator", "... A prayer fragment?"),
         ("Narrator", "... If humans aren't allowed here..."),
@@ -959,7 +965,7 @@ def draw_twins_dialog(surface, speaker, typewriter):
 # ─────────────────────────────────────────────────────────────────────────────
 # MAIN
 # ─────────────────────────────────────────────────────────────────────────────
-def main():
+def main(player_held_key=None):
     walls, wall_set, abel_ban_tile, cain_ban_tile, \
         abel_spawn, cain_spawn, interactive_tiles, exit_tiles, entrance_tiles = build_from_tmx()
 
@@ -970,6 +976,9 @@ def main():
     pygame.mixer.music.play(-1)
 
     player  = Player()
+    # Restore held key from previous level
+    if player_held_key is not None:
+        player.held_key = player_held_key
     
     # Initialize difficulty system
     difficulty_mgr = DifficultyManager(player, "TheTwins")
@@ -1344,7 +1353,7 @@ def main():
                 [("R", "Try again"), ("Esc", "Quit")])
 
         elif state == STATE_WIN:
-            TheGuardian.main()
+            TheGuardian.main(player.held_key)
 
         if state == STATE_TWINS_DIALOG and dialog_index < len(twins_dialog):
             speaker, _ = twins_dialog[dialog_index]

@@ -405,14 +405,6 @@ class Player:
         """
         return self.held_key is not None
 
-    def check_key_pickup(self, bushes):
-        for b in bushes:
-            if b["has_key"] and self.rect.inflate(10, 10).colliderect(b["rect"]):
-                b["has_key"] = False
-                self.held_key = True  # Note: This is legacy code, will be replaced by new key system
-                return True
-        return False
-
     def near_gate(self):
         trigger = GATE_RECT.inflate(60, 50)
         return trigger.collidepoint(self.rect.centerx, self.rect.centery)
@@ -427,8 +419,9 @@ class Player:
         draw_x = self.rect.centerx - frame.get_width() // 2
         draw_y = self.rect.centery - frame.get_height() // 2
         surface.blit(frame, (draw_x, draw_y))
-        if self.has_key():
-            surface.blit(key_img, (self.rect.centerx - 8, self.rect.top - 20))
+        if self.has_key() and self.held_key is not None:
+            # Draw the actual key sprite from the held key
+            surface.blit(self.held_key.sprite, (self.rect.centerx - 8, self.rect.top - 20))
 
 class Typewriter:
     def __init__(self):
@@ -908,7 +901,6 @@ def main():
     pygame.mixer.music.play(-1)
 
     bushes = get_bush_rects()
-    key_spawned = False  # Track whether key has been spawned
     player    = Player()
     gate_open = False
     state     = STATE_CUTSCENE_WALK  # Start with cutscene
@@ -973,10 +965,6 @@ def main():
                         state = STATE_EXPLORE
 
                 elif state == STATE_UNLOCKED:
-                    if event.key in (pygame.K_RETURN, pygame.K_SPACE):
-                        state = STATE_EXPLORE
-
-                elif state == STATE_PICKUP:
                     if event.key in (pygame.K_RETURN, pygame.K_SPACE):
                         state = STATE_EXPLORE
 
@@ -1071,7 +1059,7 @@ def main():
                             else:
                                 pygame.mixer.music.fadeout(500)
                                 fade_to_black()
-                                TheNaga.main()
+                                TheNaga.main(player.held_key)
                                 pygame.quit()
 
 
@@ -1194,11 +1182,6 @@ def main():
                     raziel.start_roaming()
                     state = STATE_ANGEL_DIALOG
 
-            # Spawn key when chase first activates
-            if mikhail.chasing and not key_spawned:
-                random.choice(bushes)["has_key"] = True
-                key_spawned = True
-            
             # Spawn keys when Mikhail chase starts (new key system)
             if mikhail.chasing and not keys_spawned:
                 keys_in_world = spawn_keys()
@@ -1211,13 +1194,8 @@ def main():
                     state = STATE_KEY_DISCOVERY
                     typewriter.set_text(KEY_NARRATOR_TEXT[discovered_key.key_type])
 
-            # Key pickup and gate logic
-            if not player.has_key():
-                if player.check_key_pickup(bushes):
-                    state = STATE_PICKUP
-
-
-            elif gate_open:
+            # Gate logic
+            if gate_open:
 
                 if player.rect.top < GATE_Y:
                     angel_dialog = DIALOGS["gate_unlock"]
@@ -1230,7 +1208,7 @@ def main():
 
                     state = STATE_GATE_DIALOG
 
-            elif player.near_gate():
+            elif player.near_gate() and state == STATE_EXPLORE:
                 state = STATE_PROMPT if player.has_key() else STATE_LOCKED
 
         draw_map(game_surface, player, gate_open)
@@ -1260,11 +1238,6 @@ def main():
                 ["*click*",
                  "The gate swings open."],
                 [("Enter", "Continue")])
-        elif state == STATE_PICKUP:
-            draw_dialog(game_surface,
-                ["You found a hidden key!",
-                 "It might open something nearby..."],
-                [("Enter", "OK")])
         elif state == STATE_KEY_PICKUP_PROMPT:
             draw_dialog(game_surface,
                 ["Pick it up?"],

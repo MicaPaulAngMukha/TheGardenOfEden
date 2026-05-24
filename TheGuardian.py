@@ -759,7 +759,7 @@ def flash_to_black(surface, clk):
 # =============================================================================
 # MAIN
 # =============================================================================
-def main():
+def main(player_held_key=None):
     exit_unlocked = False
 
     walls, wall_set, bush_tiles, exit_tiles, entrance_tiles, walls_exit = build_from_tmx()
@@ -785,6 +785,10 @@ def main():
         bush_rustle = None
 
     player   = Player()
+    # Restore held key from previous level
+    if player_held_key is not None:
+        player.held_key = player_held_key
+    
     guardian = Guardian()
 
     # Initialize difficulty system
@@ -1091,7 +1095,7 @@ def main():
 
         elif state == STATE_WIN:
             pygame.mixer.music.fadeout(500)
-            TheStatues.main()
+            TheStatues.main(player.held_key)
             pygame.quit()
 
         # Scale and display the game surface with letterboxing/pillarboxing

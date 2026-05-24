@@ -713,7 +713,7 @@ STATE_HAMMER_DIALOG = "hammer_dialog"
 # =============================================================================
 # MAIN
 # =============================================================================
-def main():
+def main(player_held_key=None):
     import TheGuardian  # next level
 
     walls, wall_set, statue_spawns, hammer_pool, exit_tiles, entrance_tiles = build_from_tmx()
@@ -735,6 +735,9 @@ def main():
     pulse_light_duration = PULSE_LIGHT_DURATION_DEFAULT
 
     player          = Player()
+    # Restore held key from previous level
+    if player_held_key is not None:
+        player.held_key = player_held_key
     
     # Initialize difficulty system
     difficulty_mgr = DifficultyManager(player, "TheStatues")
@@ -1063,7 +1066,7 @@ def main():
 
         elif state == STATE_WIN:
             pygame.mixer.music.fadeout(500)
-            TheGarden.main()
+            TheGarden.main(player.held_key)
             pygame.quit()
 
         # Scale and display the game surface with letterboxing/pillarboxing

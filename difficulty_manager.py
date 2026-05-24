@@ -55,9 +55,9 @@ class DifficultyManager:
             self.difficulty = get_difficulty_from_key(player.held_key)
             self.modifiers = get_modifiers(level_name, self.difficulty)
             
-            # UI state
-            self.show_indicator = True
-            self.indicator_timer = 180  # 3 seconds at 60 FPS
+            # UI state - DISABLED to keep difficulty a surprise
+            self.show_indicator = False  # Changed from True to False
+            self.indicator_timer = 0  # No timer needed since we don't show it
         except Exception as e:
             print(f"ERROR: Exception during DifficultyManager initialization for {level_name}: {e}")
             print("Falling back to Normal Mode.")
@@ -65,8 +65,8 @@ class DifficultyManager:
             self.level_name = level_name
             self.difficulty = NORMAL
             self.modifiers = {}
-            self.show_indicator = True
-            self.indicator_timer = 180
+            self.show_indicator = False
+            self.indicator_timer = 0
     
     def update(self):
         """Update indicator timer."""

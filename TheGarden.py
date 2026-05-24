@@ -843,7 +843,7 @@ STATE_END          = "end"
 # =============================================================================
 # MAIN
 # =============================================================================
-def main():
+def main(player_held_key=None):
     walls, wall_set, tree_center, door_rects = build_from_tmx()
 
     # ── Music ──
@@ -855,6 +855,9 @@ def main():
         pass
 
     player          = Player()
+    # Restore held key from previous level
+    if player_held_key is not None:
+        player.held_key = player_held_key
     
     # Initialize difficulty manager
     difficulty_mgr = DifficultyManager(player, "TheGarden")
