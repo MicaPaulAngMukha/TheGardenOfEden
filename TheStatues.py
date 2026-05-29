@@ -746,12 +746,10 @@ def main(player_held_key=None):
     light_modifier = difficulty_mgr.get_modifier("light_phase_duration")
     if light_modifier is not None:
         pulse_light_duration = light_modifier
-        PULSE_LIGHT_DURATION_DEFAULT = light_modifier
-    
+
     dark_modifier = difficulty_mgr.get_modifier("dark_phase_duration")
     if dark_modifier is not None:
         pulse_dark_duration = dark_modifier
-        PULSE_DARK_DURATION_DEFAULT = dark_modifier
     
     # Apply statue speed multiplier
     statue_speed_mult = difficulty_mgr.get_modifier("statue_speed_multiplier", 1.0)
@@ -818,11 +816,12 @@ def main(player_held_key=None):
                                         s.lurch_toward(player.rect)
                                     # Animate lurch for ~30 frames
                                     for _ in range(35):
-                                        draw_scene(screen, player, statues, hammer_pos, key_pos,
+                                        draw_scene(game_surface, player, statues, hammer_pos, key_pos,
                                                    gate_open, True, entrance_closed,
                                                    245, False)
                                         for s in statues:
                                             s.update_lurch()
+                                        scaler.display(screen, game_surface)
                                         pygame.display.flip()
                                         clock.tick(60)
                                     pygame.time.wait(200)
@@ -1019,7 +1018,7 @@ def main(player_held_key=None):
 
             # ── Exit ──
             if player.has_key and state == STATE_PLAY:
-                exit_zone = pygame.Rect(0, HEIGHT - 4 * T, WIDTH, 4 * T)
+                exit_zone = pygame.Rect(0, HEIGHT - 8 * T, WIDTH, 8 * T)
                 if player.rect.colliderect(exit_zone):
                     state = STATE_PROMPT
 

@@ -81,7 +81,7 @@ except Exception:
 # ── Constants ─────────────────────────────────────────────────────────────────
 PLAYER_SIZE       = 24
 MAX_LIVES         = 3
-PLAYER_SPAWN = (WIDTH // 2, 40)
+PLAYER_SPAWN = (WIDTH // 2 - 10, 5 * T)
 
 GUARD_SPEED_NORMAL = 1.8
 GUARD_SPEED_LIGHT  = 3.4
@@ -227,6 +227,18 @@ def place_key(bush_tiles):
     for b in bush_tiles:
         b["has_key"] = False
     random.choice(bush_tiles)["has_key"] = True
+
+def find_clear_spawn(wall_set, preferred_cx, preferred_cy, tile_size=T):
+    """Find nearest open tile to preferred spawn."""
+    pc = preferred_cx // tile_size
+    pr = preferred_cy // tile_size
+    for radius in range(0, 10):
+        for dc in range(-radius, radius + 1):
+            for dr in range(-radius, radius + 1):
+                if (pc + dc, pr + dr) not in wall_set:
+                    return ((pc + dc) * tile_size + tile_size // 2,
+                            (pr + dr) * tile_size + tile_size // 2)
+    return (preferred_cx, preferred_cy)
 
 
 # =============================================================================
@@ -756,6 +768,7 @@ def flash_to_black(surface, clk):
     for alpha in range(0, 256, 8):
         overlay.set_alpha(alpha)
         surface.blit(overlay, (0, 0))
+        scaler.display(screen, surface)
         pygame.display.flip()
         clk.tick(60)
     pygame.time.wait(300)
@@ -789,7 +802,8 @@ def main(player_held_key=None):
     except Exception:
         bush_rustle = None
 
-    player   = Player()
+    player = Player()
+    player.rect.center = PLAYER_SPAWN  # use the hardcoded constant directly
     # Restore held key from previous level
     if player_held_key is not None:
         player.held_key = player_held_key
@@ -923,15 +937,16 @@ def main(player_held_key=None):
                     chase_active = False  # ← was True
                     guardian.chasing = False  # ← was True
                     guardian.speed = GUARD_SPEED_NORMAL
-                    flash_to_black(screen, clock)
+                    flash_to_black(game_surface, clock)
                     pygame.mixer.music.fadeout(500)  # ← add
                     pygame.mixer.music.load(os.path.join(BASE_DIR, "audio", "Hostile_March_BattleTheme.wav"))  # ← add
                     pygame.mixer.music.set_volume(0.5)  # ← add
                     pygame.mixer.music.play(-1)
                     state = STATE_PLAY
 
-                draw_scene(screen, player, guardian, bush_tiles,
+                draw_scene(game_surface, player, guardian, bush_tiles,
                            gate_open, darkness_active, entrance_closed)
+                scaler.display(screen, game_surface)
                 pygame.display.flip()
                 continue
 
@@ -1063,8 +1078,8 @@ def main(player_held_key=None):
                 player.inv_timer = INVINCIBLE_FRAMES
                 state = STATE_GAME_OVER if player.lives <= 0 else STATE_HIT
 
-            if player.has_key and player.rect.top >= HEIGHT - 2 * T:
-                exit_zone = pygame.Rect(0, HEIGHT - 4 * T, WIDTH, 4 * T)
+            if player.has_key:
+                exit_zone = pygame.Rect(0, HEIGHT - 8 * T, WIDTH, 8 * T)
                 if player.rect.colliderect(exit_zone) and state == STATE_PLAY:
                     state = STATE_PROMPT
 
